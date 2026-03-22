@@ -1,15 +1,21 @@
-import subprocess
-import sys
+import io
+import urllib.request
 from datetime import date
 
 import pandas as pd
 import streamlit as st
 
 from db.database import Database
-from models import CategorizedTransaction
-from parser.categorizer import load_rules
+from models import CategorizedTransaction, Transaction
+from parser.categorizer import categorize, load_rules
 
-db = Database()
+
+@st.cache_resource
+def _get_db() -> Database:
+    return Database()
+
+
+db = _get_db()
 
 st.set_page_config(page_title="가계부", page_icon="💰", layout="wide")
 
@@ -37,10 +43,12 @@ if page == "홈":
     inc_this, exp_this = summarize(this_month)
     inc_last, exp_last = summarize(last_month)
 
+    net_this = inc_this + exp_this
+    net_last = inc_last + exp_last
     col1, col2, col3 = st.columns(3)
     col1.metric("수입", f"{inc_this:,}원", f"{inc_this - inc_last:+,}원 vs 지난달")
     col2.metric("지출", f"{abs(exp_this):,}원", f"{abs(exp_this) - abs(exp_last):+,}원 vs 지난달")
-    col3.metric("순수익", f"{inc_this + exp_this:,}원")
+    col3.metric("순수익", f"{net_this:,}원", f"{net_this - net_last:+,}원 vs 지난달")
 
     log = db.get_latest_crawl_log()
     if log:
@@ -48,7 +56,6 @@ if page == "홈":
         st.caption(f"{status_emoji} 마지막 동기화: {log['started_at']} ({log['status']})")
 
     if st.button("🔄 지금 동기화"):
-        import urllib.request
         try:
             urllib.request.urlopen(
                 urllib.request.Request("http://127.0.0.1:9000/run", method="POST"),
@@ -89,18 +96,26 @@ elif page == "거래내역":
             idx = st.number_input("수정할 행 ID", min_value=1, step=1)
             new_cat = st.text_input("새 카테고리")
             if st.form_submit_button("저장"):
-                matching = [r for r in rows if r["id"] == int(idx)]
-                if matching:
-                    r = matching[0]
-                    db.update_category(
-                        date=date.fromisoformat(r["date"]),
-                        amount=r["amount"],
-                        description=r["description"],
-                        source=r["source"],
-                        category=new_cat,
-                    )
-                    st.success("저장되었습니다.")
-                    st.rerun()
+                if not new_cat.strip():
+                    st.warning("카테고리를 입력하세요.")
+                else:
+                    matching = [r for r in rows if r["id"] == int(idx)]
+                    if not matching:
+                        st.error("해당 ID를 찾을 수 없습니다.")
+                    else:
+                        r = matching[0]
+                        try:
+                            db.update_category(
+                                date=date.fromisoformat(r["date"]),
+                                amount=r["amount"],
+                                description=r["description"],
+                                source=r["source"],
+                                category=new_cat,
+                            )
+                            st.success("저장되었습니다.")
+                            st.rerun()
+                        except LookupError:
+                            st.error("저장 실패: 해당 거래를 찾을 수 없습니다.")
 
 # ─────────────────────────────────────────────
 # 차트
@@ -163,20 +178,16 @@ elif page == "설정":
     st.subheader("CSV 업로드")
     uploaded = st.file_uploader("거래내역 CSV 파일", type=["csv"])
     if uploaded:
-        import io
         df = pd.read_csv(io.BytesIO(uploaded.read()))
         st.dataframe(df.head())
         st.info(f"{len(df)}개 행 감지됨. 아래 컬럼 매핑을 확인하세요.")
-        # Basic column mapping
         col_map = {}
         for field in ["date", "amount", "description", "source"]:
             col_map[field] = st.selectbox(f"{field} 컬럼", df.columns.tolist(), key=field)
         if st.button("가져오기"):
-            from parser.categorizer import categorize
             txs = []
             for _, row in df.iterrows():
                 try:
-                    from models import Transaction
                     txs.append(Transaction(
                         date=date.fromisoformat(str(row[col_map["date"]])[:10]),
                         amount=int(row[col_map["amount"]]),
@@ -199,15 +210,17 @@ elif page == "설정":
         entry_cat = st.text_input("카테고리", value="미분류")
         entry_source = st.text_input("출처", value="manual")
         if st.form_submit_button("추가"):
-            from models import CategorizedTransaction
-            tx = CategorizedTransaction(
-                date=entry_date,
-                amount=int(entry_amount),
-                description=entry_desc,
-                source=entry_source,
-                raw_source="manual",
-                category=entry_cat,
-            )
-            db.insert_transactions([tx])
-            st.success("추가되었습니다.")
-            st.rerun()
+            if entry_amount == 0:
+                st.warning("금액을 입력하세요 (지출은 음수).")
+            else:
+                tx = CategorizedTransaction(
+                    date=entry_date,
+                    amount=int(entry_amount),
+                    description=entry_desc,
+                    source=entry_source,
+                    raw_source="manual",
+                    category=entry_cat,
+                )
+                db.insert_transactions([tx])
+                st.success("추가되었습니다.")
+                st.rerun()
