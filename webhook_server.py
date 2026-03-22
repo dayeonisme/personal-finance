@@ -3,11 +3,15 @@ import logging
 import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 HOST = "127.0.0.1"
 PORT = 9000
+
+
+_PROJECT_ROOT = Path(__file__).parent
 
 
 class _App:
@@ -16,6 +20,7 @@ class _App:
             [sys.executable, "run.py"],
             capture_output=True,
             text=True,
+            cwd=str(_PROJECT_ROOT),
         )
         logger.info("run.py exited with code %d", result.returncode)
         if result.stderr:
@@ -23,7 +28,7 @@ class _App:
         return {"exit_code": result.returncode, "stdout": result.stdout}
 
 
-def create_app(dry_run: bool = False) -> _App:
+def create_app() -> _App:
     return _App()
 
 
