@@ -4,4 +4,16 @@ logs/
 n8n_data/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+.venv/
+venv/
+env/
+.DS_Store
+*.db
+*.sqlite
+playwright-report/
+test-results/
 .pytest_cache/
