@@ -1,0 +1,116 @@
+import sqlite3
+from datetime import date, datetime
+from pathlib import Path
+from models import CategorizedTransaction
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS transactions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    date        DATE NOT NULL,
+    amount      INTEGER NOT NULL,
+    description TEXT NOT NULL,
+    category    TEXT NOT NULL DEFAULT '미분류',
+    source      TEXT NOT NULL,
+    raw_source  TEXT NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_edited   BOOLEAN DEFAULT 0,
+    UNIQUE(date, amount, description, source)
+);
+
+CREATE TABLE IF NOT EXISTS crawl_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at  DATETIME NOT NULL,
+    finished_at DATETIME,
+    status      TEXT NOT NULL,
+    rows_added  INTEGER DEFAULT 0,
+    error_msg   TEXT
+);
+"""
+
+
+class Database:
+    def __init__(self, path: str = "data/finance.db"):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.executescript(SCHEMA)
+        self._conn.commit()
+
+    def insert_transactions(self, transactions: list[CategorizedTransaction]) -> int:
+        inserted = 0
+        for tx in transactions:
+            existing = self._conn.execute(
+                "SELECT is_edited FROM transactions WHERE date=? AND amount=? AND description=? AND source=?",
+                (tx.date.isoformat(), tx.amount, tx.description, tx.source),
+            ).fetchone()
+            if existing:
+                if existing["is_edited"]:
+                    # User has manually overridden the category — preserve it, skip re-insert
+                    continue
+                else:
+                    # Pure deduplication — row already exists, nothing to do
+                    continue
+            self._conn.execute(
+                """INSERT INTO transactions
+                   (date, amount, description, category, source, raw_source)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (tx.date.isoformat(), tx.amount, tx.description,
+                 tx.category, tx.source, tx.raw_source),
+            )
+            inserted += 1
+        self._conn.commit()
+        return inserted
+
+    def update_category(self, *, date: date, amount: int, description: str,
+                        source: str, category: str) -> None:
+        self._conn.execute(
+            """UPDATE transactions SET category=?, is_edited=1
+               WHERE date=? AND amount=? AND description=? AND source=?""",
+            (category, date.isoformat(), amount, description, source),
+        )
+        self._conn.commit()
+
+    def get_transactions(self, year: int = None, month: int = None) -> list[dict]:
+        query = "SELECT * FROM transactions WHERE 1=1"
+        params: list = []
+        if year and month:
+            query += " AND strftime('%Y', date)=? AND strftime('%m', date)=?"
+            params.extend([str(year), f"{month:02d}"])
+        elif year:
+            query += " AND strftime('%Y', date)=?"
+            params.append(str(year))
+        query += " ORDER BY date DESC"
+        rows = self._conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def start_crawl_log(self) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO crawl_log (started_at, status) VALUES (datetime('now'), 'running')"
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def finish_crawl_log(self, log_id: int, *, status: str,
+                         rows_added: int = 0, error_msg: str = None) -> None:
+        self._conn.execute(
+            """UPDATE crawl_log SET status=?, finished_at=datetime('now'),
+               rows_added=?, error_msg=? WHERE id=?""",
+            (status, rows_added, error_msg, log_id),
+        )
+        self._conn.commit()
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def get_latest_crawl_log(self) -> dict | None:
+        row = self._conn.execute(
+            """SELECT id, started_at, finished_at, rows_added, error_msg,
+               CASE
+                 WHEN status='running' AND
+                      (julianday('now') - julianday(started_at)) * 24 * 60 > 30
+                 THEN 'failed'
+                 ELSE status
+               END AS status
+               FROM crawl_log ORDER BY id DESC LIMIT 1"""
+        ).fetchone()
+        return dict(row) if row else None
