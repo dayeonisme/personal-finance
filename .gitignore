@@ -1,0 +1,7 @@
+data/
+logs/
+.env
+n8n_data/
+__pycache__/
+*.pyc
+.pytest_cache/
