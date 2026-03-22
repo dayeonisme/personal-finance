@@ -25,10 +25,11 @@ class MockCrawler(BaseCrawler):
         self.logged_out = True
 
 
-def test_context_manager_calls_login_and_logout():
+def test_context_manager_calls_logout_on_exit():
     crawler = MockCrawler()
     with crawler as c:
         c.login()
+    assert crawler.logged_in is True
     assert crawler.logged_out is True
 
 
