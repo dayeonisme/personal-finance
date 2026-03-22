@@ -38,39 +38,49 @@ class Database:
 
     def insert_transactions(self, transactions: list[CategorizedTransaction]) -> int:
         inserted = 0
-        for tx in transactions:
-            existing = self._conn.execute(
-                "SELECT is_edited FROM transactions WHERE date=? AND amount=? AND description=? AND source=?",
-                (tx.date.isoformat(), tx.amount, tx.description, tx.source),
-            ).fetchone()
-            if existing:
-                if existing["is_edited"]:
-                    # User has manually overridden the category — preserve it, skip re-insert
-                    continue
-                else:
-                    # Pure deduplication — row already exists, nothing to do
-                    continue
-            self._conn.execute(
-                """INSERT INTO transactions
-                   (date, amount, description, category, source, raw_source)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (tx.date.isoformat(), tx.amount, tx.description,
-                 tx.category, tx.source, tx.raw_source),
-            )
-            inserted += 1
-        self._conn.commit()
+        try:
+            for tx in transactions:
+                existing = self._conn.execute(
+                    "SELECT is_edited FROM transactions WHERE date=? AND amount=? AND description=? AND source=?",
+                    (tx.date.isoformat(), tx.amount, tx.description, tx.source),
+                ).fetchone()
+                if existing:
+                    if existing["is_edited"]:
+                        # User has manually overridden the category — preserve it, skip re-insert
+                        continue
+                    else:
+                        # Pure deduplication — row already exists, nothing to do
+                        continue
+                self._conn.execute(
+                    """INSERT INTO transactions
+                       (date, amount, description, category, source, raw_source)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (tx.date.isoformat(), tx.amount, tx.description,
+                     tx.category, tx.source, tx.raw_source),
+                )
+                inserted += 1
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
         return inserted
 
     def update_category(self, *, date: date, amount: int, description: str,
                         source: str, category: str) -> None:
-        self._conn.execute(
+        cur = self._conn.execute(
             """UPDATE transactions SET category=?, is_edited=1
                WHERE date=? AND amount=? AND description=? AND source=?""",
             (category, date.isoformat(), amount, description, source),
         )
         self._conn.commit()
+        if cur.rowcount == 0:
+            raise LookupError(
+                f"No transaction found for ({date}, {amount}, {description!r}, {source!r})"
+            )
 
     def get_transactions(self, year: int = None, month: int = None) -> list[dict]:
+        if month is not None and year is None:
+            raise ValueError("year is required when month is specified")
         query = "SELECT * FROM transactions WHERE 1=1"
         params: list = []
         if year and month:

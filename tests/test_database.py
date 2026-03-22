@@ -87,3 +87,16 @@ def test_get_transactions_filter_by_month(db):
     march = db.get_transactions(year=2026, month=3)
     assert len(march) == 1
     assert march[0]["description"] == "스타벅스"
+
+
+def test_get_transactions_month_without_year_raises(db):
+    with pytest.raises(ValueError, match="year is required"):
+        db.get_transactions(month=3)
+
+
+def test_update_category_raises_if_not_found(db):
+    with pytest.raises(LookupError):
+        db.update_category(
+            date=date(2026, 1, 1), amount=-999,
+            description="없는가게", source="kb_card", category="식비"
+        )
