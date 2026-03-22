@@ -12,8 +12,6 @@ from crawler.toss import TossCrawler
 from db.database import Database
 from parser.categorizer import categorize
 
-load_dotenv()
-
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +26,7 @@ def _setup_logging() -> None:
 
 
 def main(days: int = 7, dry_run: bool = False, login: bool = False) -> None:
+    load_dotenv()
     _setup_logging()
     db = Database()
     end_date = date.today()

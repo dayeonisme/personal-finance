@@ -56,6 +56,21 @@ def test_auth_failure_exits_2(tmp_path):
         assert call_kwargs["status"] == "failed"
 
 
+def test_unexpected_error_exits_1(tmp_path):
+    mock_db = MagicMock()
+    mock_db.start_crawl_log.return_value = 1
+
+    with patch("run.Database", return_value=mock_db), \
+         patch("run.TossCrawler", return_value=_mock_crawler(raise_on_login=RuntimeError("network failure"))), \
+         patch("run._setup_logging"), \
+         patch("sys.exit") as mock_exit:
+        run.main(days=7, dry_run=False, login=False)
+        mock_exit.assert_called_with(1)
+        mock_db.finish_crawl_log.assert_called_once()
+        call_kwargs = mock_db.finish_crawl_log.call_args.kwargs
+        assert call_kwargs["status"] == "failed"
+
+
 def test_dry_run_does_not_write_to_db(tmp_path):
     mock_db = MagicMock()
 
