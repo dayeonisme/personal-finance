@@ -9,7 +9,7 @@ def load_rules(path: str = "config/categories.yaml") -> dict:
 
 def categorize(
     transactions: list[Transaction],
-    rules: dict = None,
+    rules: dict | None = None,
     rules_path: str = "config/categories.yaml",
 ) -> list[CategorizedTransaction]:
     if rules is None:
