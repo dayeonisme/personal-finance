@@ -13,7 +13,7 @@ from models import Transaction
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-SESSION_PATH = Path("data/toss_session.json")
+SESSION_PATH = Path(__file__).parent.parent / "data" / "toss_session.json"
 TOSS_URL = "https://toss.im"
 
 
@@ -22,6 +22,7 @@ class TossCrawler(BaseCrawler):
         self._headless = headless
         self._playwright = None
         self._browser = None
+        self._context = None
         self._page: Page | None = None
 
     def login(self) -> None:
@@ -29,17 +30,20 @@ class TossCrawler(BaseCrawler):
         launch_kwargs = {"headless": self._headless}
         self._browser = self._playwright.chromium.launch(**launch_kwargs)
         if SESSION_PATH.exists():
-            context = self._browser.new_context(storage_state=str(SESSION_PATH))
+            self._context = self._browser.new_context(storage_state=str(SESSION_PATH))
         else:
-            context = self._browser.new_context()
+            self._context = self._browser.new_context()
 
-        self._page = context.new_page()
+        self._page = self._context.new_page()
         self._page.goto(f"{TOSS_URL}/my-account")
 
-        # Check if already logged in
-        if self._page.url.startswith(f"{TOSS_URL}/my-account"):
+        # Wait for any SPA redirect to settle, then check if already authenticated
+        try:
+            self._page.wait_for_url(f"{TOSS_URL}/my-account**", timeout=5_000)
             logger.info("Session valid — skipping login")
             return
+        except Exception:
+            pass  # session expired or never logged in — proceed with login flow
 
         # Perform login
         phone = os.environ["TOSS_PHONE"]
@@ -59,7 +63,7 @@ class TossCrawler(BaseCrawler):
 
         # Save session
         SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
-        self._page.context.storage_state(path=str(SESSION_PATH))
+        self._context.storage_state(path=str(SESSION_PATH))
         logger.info("Session saved to %s", SESSION_PATH)
 
     def fetch_transactions(self, start_date: date, end_date: date) -> list[Transaction]:
@@ -104,14 +108,19 @@ class TossCrawler(BaseCrawler):
         return transactions
 
     def logout(self) -> None:
-        if self._page:
+        if self._context:
             try:
-                self._page.context.close()
+                self._context.close()
             finally:
+                self._context = None
                 self._page = None
         if self._browser:
-            self._browser.close()
-            self._browser = None
+            try:
+                self._browser.close()
+            finally:
+                self._browser = None
         if self._playwright:
-            self._playwright.stop()
-            self._playwright = None
+            try:
+                self._playwright.stop()
+            finally:
+                self._playwright = None
