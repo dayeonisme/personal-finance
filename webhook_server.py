@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -7,7 +8,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-HOST = "127.0.0.1"
+# Default to 127.0.0.1 for security.
+# Set WEBHOOK_HOST=0.0.0.0 when Docker needs to reach the host (e.g. n8n integration).
+HOST = os.environ.get("WEBHOOK_HOST", "127.0.0.1")
 PORT = 9000
 
 

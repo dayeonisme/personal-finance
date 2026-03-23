@@ -1,8 +1,12 @@
+from pathlib import Path
+
 import yaml
 from models import Transaction, CategorizedTransaction
 
+_DEFAULT_RULES_PATH = Path(__file__).parent.parent / "config" / "categories.yaml"
 
-def load_rules(path: str = "config/categories.yaml") -> dict:
+
+def load_rules(path: str | Path = _DEFAULT_RULES_PATH) -> dict:
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
@@ -10,7 +14,7 @@ def load_rules(path: str = "config/categories.yaml") -> dict:
 def categorize(
     transactions: list[Transaction],
     rules: dict | None = None,
-    rules_path: str = "config/categories.yaml",
+    rules_path: str | Path = _DEFAULT_RULES_PATH,
 ) -> list[CategorizedTransaction]:
     if rules is None:
         rules = load_rules(rules_path)
