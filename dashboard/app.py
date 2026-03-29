@@ -204,7 +204,7 @@ elif page == "거래내역":
     if not rows:
         st.info("거래내역이 없습니다.")
     else:
-        df = pd.DataFrame(rows).fillna("")
+        df = pd.DataFrame(rows).fillna("").replace("nan", "")
 
         # 카테고리 필터
         categories = ["전체"] + sorted(df["category"].unique().tolist())
@@ -487,6 +487,8 @@ elif page == "설정":
             source_col = st.selectbox("출처 (계좌/카드)", none_option, index=src_default, key="csv_source")
 
             def parse_value(val, dtype: str = "텍스트") -> str:
+                if pd.isna(val):
+                    return ""
                 raw = str(val).strip()
                 if dtype == "숫자":
                     return str(int(float(raw.replace(",", ""))))
@@ -537,20 +539,54 @@ elif page == "설정":
 
                 place_to_cat: dict[str, str] = {}
                 if uncat_places:
-                    st.markdown("**미분류 장소 카테고리 지정** (규칙으로 저장됩니다)")
                     existing_cats = sorted(set(
                         r["category"] for r in load_rules().get("rules", [])
                     ))
                     cat_choices = existing_cats + ["미분류"]
 
+                    # AI 카테고리 유추 (ANTHROPIC_API_KEY 있을 때만)
+                    ai_suggestions: dict[str, str] = {}
+                    import os
+                    api_key = os.getenv("ANTHROPIC_API_KEY")
+                    if api_key:
+                        try:
+                            import anthropic, json
+                            client = anthropic.Anthropic(api_key=api_key)
+                            places_str = "\n".join(f"- {p}" for p in uncat_places)
+                            cats_str = ", ".join(existing_cats)
+                            msg = client.messages.create(
+                                model="claude-haiku-4-5-20251001",
+                                max_tokens=512,
+                                messages=[{
+                                    "role": "user",
+                                    "content": (
+                                        f"다음 장소/가맹점명을 보고 카테고리를 유추해주세요.\n"
+                                        f"사용 가능한 카테고리: {cats_str}, 미분류\n\n"
+                                        f"장소 목록:\n{places_str}\n\n"
+                                        f"JSON만 응답: {{\"장소명\": \"카테고리\", ...}}\n"
+                                        f"확실하지 않으면 \"미분류\"로 설정하세요."
+                                    ),
+                                }],
+                            )
+                            text = msg.content[0].text
+                            start, end = text.find("{"), text.rfind("}") + 1
+                            if start >= 0 and end > start:
+                                ai_suggestions = json.loads(text[start:end])
+                            st.caption("✨ AI가 카테고리를 유추했습니다. 확인 후 수정하세요.")
+                        except Exception as e:
+                            st.caption(f"AI 유추 실패: {e}")
+
+                    st.markdown("**미분류 장소 카테고리 지정** (규칙으로 저장됩니다)")
                     cols_per_row = 2
                     for i in range(0, len(uncat_places), cols_per_row):
                         row_cols = st.columns(cols_per_row)
                         for j, place in enumerate(uncat_places[i:i + cols_per_row]):
+                            ai_cat = ai_suggestions.get(place, "미분류")
+                            default_idx = cat_choices.index(ai_cat) if ai_cat in cat_choices else len(cat_choices) - 1
                             place_to_cat[place] = row_cols[j].selectbox(
                                 f"'{place}'",
                                 cat_choices,
-                                index=len(cat_choices) - 1,
+                                index=default_idx,
                                 key=f"place_cat_{place}",
                             )
 
