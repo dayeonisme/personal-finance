@@ -18,3 +18,4 @@ env/
 playwright-report/
 test-results/
 .pytest_cache/
+.worktrees/
