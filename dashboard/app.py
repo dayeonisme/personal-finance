@@ -10,14 +10,15 @@ from models import CategorizedTransaction, Transaction
 from parser.categorizer import categorize, load_rules
 
 
+st.set_page_config(page_title="가계부", page_icon="💰", layout="wide")
+
+
 @st.cache_resource
 def _get_db() -> Database:
     return Database()
 
 
 db = _get_db()
-
-st.set_page_config(page_title="가계부", page_icon="💰", layout="wide")
 
 PAGES = ["홈", "거래내역", "차트", "설정"]
 page = st.sidebar.radio("메뉴", PAGES)
@@ -89,10 +90,9 @@ elif page == "거래내역":
         if selected_cat != "전체":
             df = df[df["category"] == selected_cat]
 
-        st.dataframe(
-            df[["date", "description", "amount", "category", "source", "is_edited"]],
-            use_container_width=True,
-        )
+        display_df = df[["date", "place", "description", "amount", "category", "source", "is_edited"]].copy()
+        display_df["amount"] = display_df["amount"].apply(lambda x: f"{x:,}")
+        st.dataframe(display_df, use_container_width=True)
 
         st.subheader("카테고리 수정")
         with st.form("edit_category"):
@@ -182,20 +182,40 @@ elif page == "설정":
     uploaded = st.file_uploader("거래내역 CSV 파일", type=["csv"])
     if uploaded:
         df = pd.read_csv(io.BytesIO(uploaded.read()))
+
+        # 변경 1: 첫 번째 열이 비어있는 첫 행에서 멈추기
+        first_col = df.columns[0]
+        empty_mask = df[first_col].isna() | (df[first_col].astype(str).str.strip() == "")
+        if empty_mask.any():
+            df = df.iloc[:empty_mask.idxmax()]
+
         st.dataframe(df.head())
         st.info(f"{len(df)}개 행 감지됨. 아래 컬럼 매핑을 확인하세요.")
-        col_map = {}
-        for field in ["date", "amount", "description", "source"]:
-            col_map[field] = st.selectbox(f"{field} 컬럼", df.columns.tolist(), key=field)
+
+        cols = df.columns.tolist()
+        none_option = ["(없음)"] + cols
+
+        c1, c2 = st.columns(2)
+        date_col   = c1.selectbox("날짜 컬럼 *", cols, key="csv_date")
+        amount_col = c2.selectbox("금액 컬럼 *", cols, key="csv_amount")
+        c3, c4 = st.columns(2)
+        place_col  = c3.selectbox("사용 장소 컬럼", none_option, key="csv_place")
+        desc_col   = c4.selectbox("메모 컬럼", none_option, key="csv_desc")
+        c5, _ = st.columns(2)
+        source_col = c5.selectbox("출처 컬럼 (계좌/카드)", none_option, key="csv_source")
+
         if st.button("가져오기"):
             txs = []
             for _, row in df.iterrows():
                 try:
+                    # 변경 2: 금액 쉼표 제거 후 int 변환
+                    raw_amount = str(row[amount_col]).replace(",", "").strip()
                     txs.append(Transaction(
-                        date=date.fromisoformat(str(row[col_map["date"]])[:10]),
-                        amount=int(row[col_map["amount"]]),
-                        description=str(row[col_map["description"]]),
-                        source=str(row[col_map["source"]]),
+                        date=date.fromisoformat(str(row[date_col])[:10]),
+                        amount=int(raw_amount),
+                        description=str(row[desc_col]) if desc_col != "(없음)" else "",
+                        place=str(row[place_col]) if place_col != "(없음)" else "",
+                        source=str(row[source_col]) if source_col != "(없음)" else "csv",
                         raw_source="csv",
                     ))
                 except Exception as e:

@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     date        DATE NOT NULL,
     amount      INTEGER NOT NULL,
     description TEXT NOT NULL,
+    place       TEXT NOT NULL DEFAULT '',
     category    TEXT NOT NULL DEFAULT '미분류',
     source      TEXT NOT NULL,
     raw_source  TEXT NOT NULL,
@@ -35,6 +36,14 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
         self._conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        try:
+            self._conn.execute("ALTER TABLE transactions ADD COLUMN place TEXT NOT NULL DEFAULT ''")
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
     def insert_transactions(self, transactions: list[CategorizedTransaction]) -> int:
         inserted = 0
@@ -53,10 +62,10 @@ class Database:
                         continue
                 self._conn.execute(
                     """INSERT INTO transactions
-                       (date, amount, description, category, source, raw_source)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
+                       (date, amount, description, place, category, source, raw_source)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (tx.date.isoformat(), tx.amount, tx.description,
-                     tx.category, tx.source, tx.raw_source),
+                     tx.place, tx.category, tx.source, tx.raw_source),
                 )
                 inserted += 1
             self._conn.commit()

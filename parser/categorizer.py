@@ -33,6 +33,7 @@ def categorize(
             date=tx.date,
             amount=tx.amount,
             description=tx.description,
+            place=tx.place,
             source=tx.source,
             raw_source=tx.raw_source,
             category=category,

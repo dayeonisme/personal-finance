@@ -6,9 +6,10 @@ from datetime import date
 class Transaction:
     date: date
     amount: int          # negative = expense, positive = income (KRW)
-    description: str     # merchant name or memo from source app
+    description: str     # memo
     source: str          # sub-account: 'kb_card', 'woori_bank', 'tmoneys', etc.
     raw_source: str      # aggregator: 'toss', 'naver_pay', 'manual', 'csv'
+    place: str = ""      # merchant / location (사용 장소)
 
 
 @dataclass
