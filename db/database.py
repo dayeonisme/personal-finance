@@ -118,6 +118,41 @@ class Database:
         )
         self._conn.commit()
 
+    def delete_transactions(self, ids: list[int]) -> int:
+        placeholders = ",".join("?" * len(ids))
+        cur = self._conn.execute(
+            f"DELETE FROM transactions WHERE id IN ({placeholders})", ids
+        )
+        self._conn.commit()
+        return cur.rowcount
+
+    def update_transaction(self, row_id: int, *, category: str = None,
+                           place: str = None, description: str = None) -> None:
+        updates, params = [], []
+        if category is not None:
+            updates.append("category=?, is_edited=1")
+            params.append(category)
+        if place is not None:
+            updates.append("place=?")
+            params.append(place)
+        if description is not None:
+            updates.append("description=?")
+            params.append(description)
+        if not updates:
+            return
+        params.append(row_id)
+        self._conn.execute(
+            f"UPDATE transactions SET {', '.join(updates)} WHERE id=?", params
+        )
+        self._conn.commit()
+
+    def get_available_years(self) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT DISTINCT CAST(strftime('%Y', date) AS INTEGER) AS yr "
+            "FROM transactions ORDER BY yr DESC"
+        ).fetchall()
+        return [r["yr"] for r in rows]
+
     def close(self) -> None:
         self._conn.close()
 
