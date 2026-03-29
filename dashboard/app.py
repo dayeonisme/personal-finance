@@ -194,28 +194,48 @@ elif page == "설정":
 
         cols = df.columns.tolist()
         none_option = ["(없음)"] + cols
+        dtype_options = ["텍스트", "숫자", "boolean"]
 
+        def parse_value(val, dtype: str) -> str:
+            raw = str(val).strip()
+            if dtype == "숫자":
+                return str(int(float(raw.replace(",", ""))))
+            if dtype == "boolean":
+                return "예" if raw.lower() in {"1", "true", "y", "yes", "예", "t"} else "아니오"
+            return raw  # 텍스트
+
+        st.markdown("**필수 컬럼** (타입 고정)")
         c1, c2 = st.columns(2)
-        date_col   = c1.selectbox("날짜 컬럼 *", cols, key="csv_date")
-        amount_col = c2.selectbox("금액 컬럼 *", cols, key="csv_amount")
-        c3, c4 = st.columns(2)
-        place_col  = c3.selectbox("사용 장소 컬럼", none_option, key="csv_place")
-        desc_col   = c4.selectbox("메모 컬럼", none_option, key="csv_desc")
-        c5, _ = st.columns(2)
-        source_col = c5.selectbox("출처 컬럼 (계좌/카드)", none_option, key="csv_source")
+        date_col   = c1.selectbox("날짜 *", cols, key="csv_date")
+        amount_col = c2.selectbox("금액 * (숫자)", cols, key="csv_amount")
+
+        st.markdown("**선택 컬럼** (타입 지정 가능)")
+        c3, c4, c5 = st.columns([2, 1, 1])
+        place_col   = c3.selectbox("사용 장소", none_option, key="csv_place")
+        place_dtype = c4.selectbox("타입", dtype_options, key="csv_place_dtype", label_visibility="hidden")
+        c5.markdown("<br><span style='color:grey;font-size:0.8em'>사용 장소 타입</span>", unsafe_allow_html=True)
+
+        c6, c7, c8 = st.columns([2, 1, 1])
+        desc_col   = c6.selectbox("메모", none_option, key="csv_desc")
+        desc_dtype = c7.selectbox("타입", dtype_options, key="csv_desc_dtype", label_visibility="hidden")
+        c8.markdown("<br><span style='color:grey;font-size:0.8em'>메모 타입</span>", unsafe_allow_html=True)
+
+        c9, c10, c11 = st.columns([2, 1, 1])
+        source_col   = c9.selectbox("출처 (계좌/카드)", none_option, key="csv_source")
+        source_dtype = c10.selectbox("타입", dtype_options, key="csv_source_dtype", label_visibility="hidden")
+        c11.markdown("<br><span style='color:grey;font-size:0.8em'>출처 타입</span>", unsafe_allow_html=True)
 
         if st.button("가져오기"):
             txs = []
             for _, row in df.iterrows():
                 try:
-                    # 변경 2: 금액 쉼표 제거 후 int 변환
                     raw_amount = str(row[amount_col]).replace(",", "").strip()
                     txs.append(Transaction(
                         date=date.fromisoformat(str(row[date_col])[:10]),
                         amount=int(raw_amount),
-                        description=str(row[desc_col]) if desc_col != "(없음)" else "",
-                        place=str(row[place_col]) if place_col != "(없음)" else "",
-                        source=str(row[source_col]) if source_col != "(없음)" else "csv",
+                        description=parse_value(row[desc_col], desc_dtype) if desc_col != "(없음)" else "",
+                        place=parse_value(row[place_col], place_dtype) if place_col != "(없음)" else "",
+                        source=parse_value(row[source_col], source_dtype) if source_col != "(없음)" else "csv",
                         raw_source="csv",
                     ))
                 except Exception as e:
