@@ -52,8 +52,11 @@ if page == "홈":
 
     log = db.get_latest_crawl_log()
     if log:
+        status_map = {"success": "성공", "failed": "실패", "running": "실행 중"}
+        status_ko = status_map.get(log["status"], log["status"])
         status_emoji = "✅" if log["status"] == "success" else "❌"
-        st.caption(f"{status_emoji} 마지막 동기화: {log['started_at']} ({log['status']})")
+        started_at = str(log["started_at"])[:16]  # "YYYY-MM-DD HH:MM"
+        st.caption(f"{status_emoji} 마지막 동기화: {started_at} ({status_ko})")
 
     if st.button("🔄 지금 동기화"):
         try:
