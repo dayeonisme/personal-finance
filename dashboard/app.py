@@ -3,6 +3,7 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 import yaml
@@ -310,14 +311,52 @@ elif page == "차트":
 
     monthly_df = collect_monthly(6)
 
+    CHART_H = 300  # 모든 차트 고정 높이
+
     st.subheader("📈 최근 6개월 추이")
     tab1, tab2, tab3 = st.tabs(["수입 / 지출", "순수익", "저축률 (%)"])
+
     with tab1:
-        st.line_chart(monthly_df[["수입", "지출"]])
+        df_long = (monthly_df[["수입", "지출"]]
+                   .reset_index()
+                   .melt(id_vars="month", var_name="구분", value_name="금액"))
+        st.altair_chart(
+            alt.Chart(df_long).mark_line(point=True).encode(
+                x=alt.X("month:N", title="월", sort=None),
+                y=alt.Y("금액:Q", scale=alt.Scale(domainMin=0), title="금액 (원)"),
+                color="구분:N",
+                tooltip=["month:N", "구분:N", "금액:Q"],
+            ).properties(height=CHART_H),
+            use_container_width=True,
+        )
+
     with tab2:
-        st.bar_chart(monthly_df[["순수익"]])
+        df_net = monthly_df[["순수익"]].reset_index()
+        y_min = min(0, int(df_net["순수익"].min()) - 10000)
+        st.altair_chart(
+            alt.Chart(df_net).mark_bar().encode(
+                x=alt.X("month:N", title="월", sort=None),
+                y=alt.Y("순수익:Q", scale=alt.Scale(domainMin=y_min), title="금액 (원)"),
+                color=alt.condition(
+                    alt.datum["순수익"] >= 0,
+                    alt.value("#4C9BE8"),
+                    alt.value("#E84C4C"),
+                ),
+                tooltip=["month:N", "순수익:Q"],
+            ).properties(height=CHART_H),
+            use_container_width=True,
+        )
+
     with tab3:
-        st.line_chart(monthly_df[["저축률"]])
+        df_sr = monthly_df[["저축률"]].reset_index()
+        st.altair_chart(
+            alt.Chart(df_sr).mark_line(point=True).encode(
+                x=alt.X("month:N", title="월", sort=None),
+                y=alt.Y("저축률:Q", scale=alt.Scale(domainMin=0), title="저축률 (%)"),
+                tooltip=["month:N", "저축률:Q"],
+            ).properties(height=CHART_H),
+            use_container_width=True,
+        )
         st.caption("저축률 = (수입 - 지출) / 수입 × 100")
 
     st.divider()
@@ -344,7 +383,14 @@ elif page == "차트":
 
             c1, c2 = st.columns([3, 2])
             with c1:
-                st.bar_chart(cat_df.set_index("카테고리"))
+                st.altair_chart(
+                    alt.Chart(cat_df).mark_bar().encode(
+                        x=alt.X("카테고리:N", sort="-y", title=""),
+                        y=alt.Y("금액:Q", scale=alt.Scale(domainMin=0), title="금액 (원)"),
+                        tooltip=["카테고리:N", "금액:Q"],
+                    ).properties(height=CHART_H),
+                    use_container_width=True,
+                )
             with c2:
                 total_exp = cat_df["금액"].sum()
                 cat_df["비율"] = (cat_df["금액"] / total_exp * 100).round(1).astype(str) + "%"
@@ -371,12 +417,21 @@ elif page == "차트":
         all_cats = sorted(set(curr_cat) | set(prev_cat))
 
         if all_cats:
-            compare_df = pd.DataFrame({
-                "카테고리": all_cats,
-                f"{prev_y}-{prev_m:02d}": [prev_cat.get(c, 0) for c in all_cats],
-                f"{year}-{month:02d}": [curr_cat.get(c, 0) for c in all_cats],
-            }).set_index("카테고리")
-            st.bar_chart(compare_df)
+            compare_rows = []
+            for c in all_cats:
+                compare_rows.append({"카테고리": c, "월": f"{prev_y}-{prev_m:02d}", "금액": prev_cat.get(c, 0)})
+                compare_rows.append({"카테고리": c, "월": f"{year}-{month:02d}", "금액": curr_cat.get(c, 0)})
+            cmp_df = pd.DataFrame(compare_rows)
+            st.altair_chart(
+                alt.Chart(cmp_df).mark_bar().encode(
+                    x=alt.X("카테고리:N", title=""),
+                    y=alt.Y("금액:Q", scale=alt.Scale(domainMin=0), title="금액 (원)"),
+                    color="월:N",
+                    xOffset="월:N",
+                    tooltip=["카테고리:N", "월:N", "금액:Q"],
+                ).properties(height=CHART_H),
+                use_container_width=True,
+            )
 
     st.divider()
 
@@ -388,7 +443,14 @@ elif page == "차트":
             df_day["date"] = pd.to_datetime(df_day["date"])
             daily = df_day.groupby("date")["amount"].sum().abs().reset_index()
             daily.columns = ["날짜", "지출"]
-            st.area_chart(daily.set_index("날짜"))
+            st.altair_chart(
+                alt.Chart(daily).mark_area(opacity=0.7, line=True).encode(
+                    x=alt.X("날짜:T", title="날짜"),
+                    y=alt.Y("지출:Q", scale=alt.Scale(domainMin=0), title="금액 (원)"),
+                    tooltip=["날짜:T", "지출:Q"],
+                ).properties(height=CHART_H),
+                use_container_width=True,
+            )
         else:
             st.info("지출 데이터가 없습니다.")
 
