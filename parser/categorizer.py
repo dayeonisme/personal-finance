@@ -25,11 +25,16 @@ def categorize(
     result = []
     for tx in transactions:
         category = default
-        combined = f"{tx.description} {tx.place}"
+        # place를 먼저 검사 (우선순위 높음), 매칭 없으면 description 검사
         for rule in rule_list:
-            if any(kw in combined for kw in rule["match"]):
+            if any(kw in tx.place for kw in rule["match"]):
                 category = rule["category"]
                 break
+        else:
+            for rule in rule_list:
+                if any(kw in tx.description for kw in rule["match"]):
+                    category = rule["category"]
+                    break
         result.append(CategorizedTransaction(
             date=tx.date,
             amount=tx.amount,

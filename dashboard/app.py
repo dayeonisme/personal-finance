@@ -6,6 +6,9 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import yaml
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from db.database import Database
 from models import CategorizedTransaction, Transaction
