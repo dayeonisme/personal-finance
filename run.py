@@ -44,7 +44,10 @@ def main(days: int = 7, dry_run: bool = False, login: bool = False) -> None:
         return
 
     log_id = db.start_crawl_log()
+    status = "failed"
+    error_msg = None
     rows_added = 0
+    exit_code = 1
     try:
         with TossCrawler(headless=not login) as crawler:
             crawler.login()
@@ -52,16 +55,19 @@ def main(days: int = 7, dry_run: bool = False, login: bool = False) -> None:
         categorized = categorize(transactions)
         rows_added = db.insert_transactions(categorized)
         logger.info("Inserted %d new transactions", rows_added)
-        db.finish_crawl_log(log_id, status="success", rows_added=rows_added)
-        sys.exit(0)
+        status = "success"
+        exit_code = 0
     except AuthenticationError as e:
         logger.error("Authentication failed: %s", e)
-        db.finish_crawl_log(log_id, status="failed", error_msg=str(e))
-        sys.exit(2)
+        error_msg = str(e)
+        exit_code = 2
     except Exception as e:
         logger.error("Unexpected error: %s", e, exc_info=True)
-        db.finish_crawl_log(log_id, status="failed", error_msg=str(e))
-        sys.exit(1)
+        error_msg = str(e)
+        exit_code = 1
+    finally:
+        db.finish_crawl_log(log_id, status=status, rows_added=rows_added, error_msg=error_msg)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
