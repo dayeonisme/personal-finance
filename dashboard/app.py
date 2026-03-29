@@ -1,9 +1,11 @@
 import io
 import urllib.request
-from datetime import date, timedelta
+from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import yaml
 
 from db.database import Database
 from models import CategorizedTransaction, Transaction
@@ -30,6 +32,10 @@ def _init_state():
         st.session_state.settings_expanded = False
     if "settings_sub" not in st.session_state:
         st.session_state.settings_sub = "카테고리 규칙"
+    if "csv_pending_txs" not in st.session_state:
+        st.session_state.csv_pending_txs = []
+    if "csv_show_analysis" not in st.session_state:
+        st.session_state.csv_show_analysis = False
 
 _init_state()
 
@@ -78,7 +84,7 @@ def _year_month_selector(key_prefix: str):
                         if str(today.year) in year_options else 1)
 
     month_options = ["전체"] + list(range(1, 13))
-    default_month_idx = today.month  # "전체"=0, 1월=1, ... 현재월=today.month
+    default_month_idx = today.month
 
     col1, col2 = st.columns(2)
     year_val = col1.selectbox("년도", year_options,
@@ -96,6 +102,48 @@ def _get_rows(year, month):
     if year is not None and month is None:
         return db.get_transactions(year=year)
     return db.get_transactions(year=year, month=month)
+
+
+def _infer_col_idx(cols: list[str], hints: set[str], with_none: bool = False) -> int:
+    """컬럼명에서 hints 와 가장 가깝게 일치하는 인덱스 반환."""
+    for i, col in enumerate(cols):
+        if col.lower().strip() in hints:
+            return i + (1 if with_none else 0)
+    return 0
+
+
+_RULES_PATH = Path("config/categories.yaml")
+
+
+def _update_category_rules(place_to_cat: dict[str, str]) -> None:
+    """장소→카테고리 매핑을 categories.yaml 에 추가 (카테고리는 항상 unique 유지)."""
+    rules = load_rules(_RULES_PATH)
+    rule_list = rules.get("rules", [])
+
+    # category → rule dict (중복 카테고리 병합)
+    cat_to_rule: dict[str, dict] = {}
+    for rule in rule_list:
+        cat = rule["category"]
+        if cat in cat_to_rule:
+            existing = set(cat_to_rule[cat]["match"])
+            for kw in rule.get("match", []):
+                if kw not in existing:
+                    cat_to_rule[cat]["match"].append(kw)
+        else:
+            cat_to_rule[cat] = {"category": cat, "match": list(rule.get("match", []))}
+
+    for place, category in place_to_cat.items():
+        if not place or category == "미분류":
+            continue
+        if category in cat_to_rule:
+            if place not in cat_to_rule[category]["match"]:
+                cat_to_rule[category]["match"].append(place)
+        else:
+            cat_to_rule[category] = {"category": category, "match": [place]}
+
+    rules["rules"] = list(cat_to_rule.values())
+    with open(_RULES_PATH, "w", encoding="utf-8") as f:
+        yaml.dump(rules, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
 # ─────────────────────────────────────────────
@@ -156,7 +204,7 @@ elif page == "거래내역":
     if not rows:
         st.info("거래내역이 없습니다.")
     else:
-        df = pd.DataFrame(rows)
+        df = pd.DataFrame(rows).fillna("")
 
         # 카테고리 필터
         categories = ["전체"] + sorted(df["category"].unique().tolist())
@@ -176,7 +224,7 @@ elif page == "거래내역":
         # 전체 행 선택 체크박스
         select_all = st.checkbox("전체 행 선택", key="tx_select_all")
 
-        editor_df = df[["id"] + visible_cols].copy()
+        editor_df = df[["id"] + visible_cols].copy().fillna("")
         editor_df.insert(0, "선택", select_all)
 
         edited = st.data_editor(
@@ -237,7 +285,6 @@ elif page == "차트":
 
     today = date.today()
 
-    # ── 최근 N개월 데이터 수집 ──────────────────
     def collect_monthly(n=6):
         records = []
         for m in range(n - 1, -1, -1):
@@ -260,7 +307,6 @@ elif page == "차트":
 
     monthly_df = collect_monthly(6)
 
-    # ── 1행: 핵심 지표 ─────────────────────────
     st.subheader("📈 최근 6개월 추이")
     tab1, tab2, tab3 = st.tabs(["수입 / 지출", "순수익", "저축률 (%)"])
     with tab1:
@@ -273,7 +319,6 @@ elif page == "차트":
 
     st.divider()
 
-    # ── 2행: 이번달 카테고리 분석 ─────────────
     year, month = _year_month_selector("chart")
     rows = _get_rows(year, month)
     period_label = (f"{year}년 {month}월" if year and month
@@ -305,7 +350,6 @@ elif page == "차트":
 
     st.divider()
 
-    # ── 3행: 전월 대비 카테고리 변화 ───────────
     if month and year:
         st.subheader("🔄 전월 대비 카테고리 변화")
         prev_m = month - 1 if month > 1 else 12
@@ -333,7 +377,6 @@ elif page == "차트":
 
     st.divider()
 
-    # ── 4행: 일별 지출 패턴 ────────────────────
     st.subheader("📅 일별 지출 패턴")
     if rows:
         df_day = pd.DataFrame(rows)
@@ -348,7 +391,6 @@ elif page == "차트":
 
     st.divider()
 
-    # ── 5행: TOP 지출 항목 ─────────────────────
     st.subheader("💸 TOP 10 지출 항목")
     if rows:
         df_top = pd.DataFrame(rows)
@@ -360,7 +402,7 @@ elif page == "차트":
             ].copy()
             df_top.columns = ["날짜", "사용 장소", "메모", "금액", "카테고리"]
             df_top["금액"] = df_top["금액"].apply(lambda x: f"{x:,.0f}원")
-            st.dataframe(df_top, use_container_width=True, hide_index=True)
+            st.dataframe(df_top.fillna(""), use_container_width=True, hide_index=True)
 
 # ─────────────────────────────────────────────
 # 설정
@@ -403,65 +445,129 @@ elif page == "설정":
     elif setting_sub == "CSV 업로드":
         st.title("📤 CSV 업로드")
         uploaded = st.file_uploader("거래내역 CSV 파일", type=["csv"])
-        if uploaded:
-            df = pd.read_csv(io.BytesIO(uploaded.read()))
 
+        if uploaded:
+            raw_bytes = uploaded.read()
+            df = pd.read_csv(io.BytesIO(raw_bytes))
+
+            # 첫 빈 행에서 중단
             first_col = df.columns[0]
             empty_mask = df[first_col].isna() | (df[first_col].astype(str).str.strip() == "")
             if empty_mask.any():
                 df = df.iloc[:empty_mask.idxmax()]
 
             st.info(f"총 {len(df)}개 행 감지됨.")
-            st.dataframe(df, height=400, use_container_width=True)
+            st.dataframe(df.fillna(""), height=300, use_container_width=True)
 
             cols = df.columns.tolist()
             none_option = ["(없음)"] + cols
-            dtype_options = ["텍스트", "숫자", "boolean"]
 
-            def parse_value(val, dtype: str) -> str:
+            # ── 컬럼 자동 매핑 ───────────────────
+            DATE_HINTS   = {"날짜", "일자", "date", "거래일", "거래일시", "거래날짜", "transaction_date", "거래 일자"}
+            AMOUNT_HINTS = {"금액", "amount", "거래금액", "출금금액", "입출금액", "입출금금액", "transaction_amount", "출금"}
+            PLACE_HINTS  = {"장소", "place", "사용처", "가맹점", "가맹점명", "merchant", "사용장소", "사용 장소", "이용장소"}
+            DESC_HINTS   = {"메모", "memo", "내용", "description", "적요", "거래내용", "비고", "거래 내용"}
+            SRC_HINTS    = {"출처", "source", "계좌", "카드", "account", "card", "카드명", "계좌명"}
+
+            date_default   = _infer_col_idx(cols, DATE_HINTS)
+            amount_default = _infer_col_idx(cols, AMOUNT_HINTS)
+            place_default  = _infer_col_idx(cols, PLACE_HINTS, with_none=True)
+            desc_default   = _infer_col_idx(cols, DESC_HINTS, with_none=True)
+            src_default    = _infer_col_idx(cols, SRC_HINTS, with_none=True)
+
+            st.markdown("**컬럼 매핑** (자동 유추됨, 수정 가능)")
+            c1, c2 = st.columns(2)
+            date_col   = c1.selectbox("날짜 *", cols, index=date_default, key="csv_date")
+            amount_col = c2.selectbox("금액 * (숫자)", cols, index=amount_default, key="csv_amount")
+
+            c3, c4 = st.columns(2)
+            place_col  = c3.selectbox("사용 장소", none_option, index=place_default, key="csv_place")
+            desc_col   = c4.selectbox("메모", none_option, index=desc_default, key="csv_desc")
+
+            source_col = st.selectbox("출처 (계좌/카드)", none_option, index=src_default, key="csv_source")
+
+            def parse_value(val, dtype: str = "텍스트") -> str:
                 raw = str(val).strip()
                 if dtype == "숫자":
                     return str(int(float(raw.replace(",", ""))))
-                if dtype == "boolean":
-                    return "예" if raw.lower() in {"1", "true", "y", "yes", "예", "t"} else "아니오"
                 return raw
 
-            st.markdown("**필수 컬럼** (타입 고정)")
-            c1, c2 = st.columns(2)
-            date_col   = c1.selectbox("날짜 *", cols, key="csv_date")
-            amount_col = c2.selectbox("금액 * (숫자)", cols, key="csv_amount")
-
-            st.markdown("**선택 컬럼** (타입 지정 가능)")
-            c3, c4 = st.columns([3, 1])
-            place_col   = c3.selectbox("사용 장소", none_option, key="csv_place")
-            place_dtype = c4.selectbox("타입", dtype_options, key="csv_place_dtype")
-
-            c5, c6 = st.columns([3, 1])
-            desc_col   = c5.selectbox("메모", none_option, key="csv_desc")
-            desc_dtype = c6.selectbox("타입", dtype_options, key="csv_desc_dtype")
-
-            c7, c8 = st.columns([3, 1])
-            source_col   = c7.selectbox("출처 (계좌/카드)", none_option, key="csv_source")
-            source_dtype = c8.selectbox("타입", dtype_options, key="csv_source_dtype")
-
-            if st.button("가져오기"):
+            def parse_txs(dataframe) -> list[Transaction]:
                 txs = []
-                for _, row in df.iterrows():
+                for _, row in dataframe.iterrows():
                     try:
                         raw_amount = str(row[amount_col]).replace(",", "").strip()
                         txs.append(Transaction(
                             date=date.fromisoformat(str(row[date_col])[:10]),
                             amount=int(float(raw_amount)),
-                            description=parse_value(row[desc_col], desc_dtype) if desc_col != "(없음)" else "",
-                            place=parse_value(row[place_col], place_dtype) if place_col != "(없음)" else "",
-                            source=parse_value(row[source_col], source_dtype) if source_col != "(없음)" else "csv",
+                            description=parse_value(row[desc_col]) if desc_col != "(없음)" else "",
+                            place=parse_value(row[place_col]) if place_col != "(없음)" else "",
+                            source=parse_value(row[source_col]) if source_col != "(없음)" else "csv",
                             raw_source="csv",
                         ))
                     except Exception as e:
                         st.warning(f"행 건너뜀: {e}")
+                return txs
+
+            # ── 분석하기 ─────────────────────────
+            if st.button("🔍 분석하기"):
+                txs = parse_txs(df)
+                st.session_state.csv_pending_txs = txs
+                st.session_state.csv_show_analysis = True
+
+            if st.session_state.csv_show_analysis and st.session_state.csv_pending_txs:
+                txs = st.session_state.csv_pending_txs
                 categorized = categorize(txs)
-                inserted = db.insert_transactions(categorized)
-                st.success(f"{inserted}개 거래 추가됨 (중복 제외)")
+
+                # 카테고리 요약
+                cat_counts: dict[str, int] = {}
+                for ct in categorized:
+                    cat_counts[ct.category] = cat_counts.get(ct.category, 0) + 1
+                summary_df = pd.DataFrame(
+                    [{"카테고리": k, "건수": v} for k, v in sorted(cat_counts.items())]
+                )
+                st.markdown("**카테고리별 분류 결과**")
+                st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+                # 미분류 장소 카테고리 지정
+                uncat_places = sorted(set(
+                    ct.place for ct in categorized
+                    if ct.category == "미분류" and ct.place
+                ))
+
+                place_to_cat: dict[str, str] = {}
+                if uncat_places:
+                    st.markdown("**미분류 장소 카테고리 지정** (규칙으로 저장됩니다)")
+                    existing_cats = sorted(set(
+                        r["category"] for r in load_rules().get("rules", [])
+                    ))
+                    cat_choices = existing_cats + ["미분류"]
+
+                    cols_per_row = 2
+                    for i in range(0, len(uncat_places), cols_per_row):
+                        row_cols = st.columns(cols_per_row)
+                        for j, place in enumerate(uncat_places[i:i + cols_per_row]):
+                            place_to_cat[place] = row_cols[j].selectbox(
+                                f"'{place}'",
+                                cat_choices,
+                                index=len(cat_choices) - 1,
+                                key=f"place_cat_{place}",
+                            )
+
+                if st.button("💾 규칙 저장 및 가져오기"):
+                    new_rules = {p: c for p, c in place_to_cat.items() if c != "미분류"}
+                    if new_rules:
+                        _update_category_rules(new_rules)
+                        st.success(f"{len(new_rules)}개 장소가 카테고리 규칙에 추가됐습니다.")
+
+                    # 업데이트된 규칙으로 재분류
+                    final_rules = load_rules(_RULES_PATH)
+                    final_categorized = categorize(txs, rules=final_rules)
+                    inserted = db.insert_transactions(final_categorized)
+                    st.success(f"{inserted}개 거래 추가됨 (중복 제외)")
+                    st.session_state.csv_pending_txs = []
+                    st.session_state.csv_show_analysis = False
+                    st.rerun()
 
     # ── 수동 입력 ──────────────────────────────
     elif setting_sub == "수동 입력":
