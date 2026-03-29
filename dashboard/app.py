@@ -1,6 +1,6 @@
 import io
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -20,8 +20,49 @@ def _get_db() -> Database:
 
 db = _get_db()
 
-PAGES = ["홈", "거래내역", "차트", "설정"]
-page = st.sidebar.radio("메뉴", PAGES)
+# ─────────────────────────────────────────────
+# 세션 상태 초기화
+# ─────────────────────────────────────────────
+def _init_state():
+    if "page" not in st.session_state:
+        st.session_state.page = "홈"
+    if "settings_expanded" not in st.session_state:
+        st.session_state.settings_expanded = False
+    if "settings_sub" not in st.session_state:
+        st.session_state.settings_sub = "카테고리 규칙"
+
+_init_state()
+
+# ─────────────────────────────────────────────
+# 사이드바 네비게이션
+# ─────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## 메뉴")
+
+    for nav in ["홈", "거래내역", "차트"]:
+        icon = {"홈": "🏠", "거래내역": "📋", "차트": "📊"}[nav]
+        is_active = st.session_state.page == nav
+        label = f"**{icon} {nav}**" if is_active else f"{icon} {nav}"
+        if st.button(label, use_container_width=True, key=f"nav_{nav}"):
+            st.session_state.page = nav
+            st.session_state.settings_expanded = False
+            st.rerun()
+
+    arrow = "▼" if st.session_state.settings_expanded else "▶"
+    if st.button(f"⚙️ 설정 {arrow}", use_container_width=True, key="nav_settings_toggle"):
+        st.session_state.settings_expanded = not st.session_state.settings_expanded
+        st.rerun()
+
+    if st.session_state.settings_expanded:
+        for sub in ["카테고리 규칙", "CSV 업로드", "수동 입력"]:
+            is_sub_active = st.session_state.page == "설정" and st.session_state.settings_sub == sub
+            sub_label = f"**└ {sub}**" if is_sub_active else f"└ {sub}"
+            if st.button(sub_label, use_container_width=True, key=f"nav_sub_{sub}"):
+                st.session_state.page = "설정"
+                st.session_state.settings_sub = sub
+                st.rerun()
+
+page = st.session_state.page
 
 # ─────────────────────────────────────────────
 # 공통 헬퍼
@@ -31,17 +72,30 @@ def _year_month_selector(key_prefix: str):
     available_years = db.get_available_years()
     if not available_years:
         available_years = list(range(today.year, today.year - 3, -1))
-    year_options = [str(y) for y in available_years]
-    default_year = str(today.year) if str(today.year) in year_options else year_options[0]
+
+    year_options = ["전체"] + [str(y) for y in available_years]
+    default_year_idx = (year_options.index(str(today.year))
+                        if str(today.year) in year_options else 1)
+
+    month_options = ["전체"] + list(range(1, 13))
+    default_month_idx = today.month  # "전체"=0, 1월=1, ... 현재월=today.month
 
     col1, col2 = st.columns(2)
-    year = col1.selectbox("년도", year_options,
-                          index=year_options.index(default_year),
-                          key=f"{key_prefix}_year")
-    month = col2.selectbox("월", list(range(1, 13)),
-                           index=today.month - 1,
-                           key=f"{key_prefix}_month")
-    return int(year), int(month)
+    year_val = col1.selectbox("년도", year_options,
+                              index=default_year_idx, key=f"{key_prefix}_year")
+    month_val = col2.selectbox("월", month_options,
+                               index=default_month_idx, key=f"{key_prefix}_month")
+
+    return (None if year_val == "전체" else int(year_val),
+            None if month_val == "전체" else int(month_val))
+
+
+def _get_rows(year, month):
+    if year is None and month is None:
+        return db.get_transactions()
+    if year is not None and month is None:
+        return db.get_transactions(year=year)
+    return db.get_transactions(year=year, month=month)
 
 
 # ─────────────────────────────────────────────
@@ -64,9 +118,9 @@ if page == "홈":
 
     inc_this, exp_this = summarize(this_month)
     inc_last, exp_last = summarize(last_month)
-
     net_this = inc_this + exp_this
     net_last = inc_last + exp_last
+
     col1, col2, col3 = st.columns(3)
     col1.metric("수입", f"{inc_this:,}원", f"{inc_this - inc_last:+,}원 vs 지난달")
     col2.metric("지출", f"{abs(exp_this):,}원", f"{abs(exp_this) - abs(exp_last):+,}원 vs 지난달")
@@ -97,8 +151,8 @@ elif page == "거래내역":
     st.title("📋 거래내역")
 
     year, month = _year_month_selector("tx")
+    rows = _get_rows(year, month)
 
-    rows = db.get_transactions(year=year, month=month)
     if not rows:
         st.info("거래내역이 없습니다.")
     else:
@@ -112,16 +166,18 @@ elif page == "거래내역":
 
         # 열 표시 선택
         all_cols = ["date", "place", "description", "amount", "category", "source", "is_edited"]
-        visible_cols = st.multiselect("표시할 열 선택", all_cols, default=all_cols, key="tx_cols")
+        col_select_opts = ["전체"] + all_cols
+        chosen = st.multiselect("표시할 열 선택", col_select_opts,
+                                default=["전체"], key="tx_cols")
+        visible_cols = all_cols if "전체" in chosen else [c for c in all_cols if c in chosen]
         if not visible_cols:
             visible_cols = all_cols
 
-        edit_cols = {"category", "place", "description"}
-        disabled_cols = [c for c in visible_cols if c not in edit_cols]
+        # 전체 행 선택 체크박스
+        select_all = st.checkbox("전체 행 선택", key="tx_select_all")
 
-        # 체크박스 열 추가
         editor_df = df[["id"] + visible_cols].copy()
-        editor_df.insert(0, "선택", False)
+        editor_df.insert(0, "선택", select_all)
 
         edited = st.data_editor(
             editor_df,
@@ -143,7 +199,6 @@ elif page == "거래내역":
 
         btn1, btn2 = st.columns(2)
 
-        # 변경 사항 저장
         if btn1.button("💾 변경 사항 저장"):
             saved = 0
             for _, orig_row in editor_df.iterrows():
@@ -153,12 +208,9 @@ elif page == "거래내역":
                     continue
                 e = edited_row.iloc[0]
                 kwargs = {}
-                if "category" in visible_cols and e.get("category") != orig_row.get("category"):
-                    kwargs["category"] = str(e["category"])
-                if "place" in visible_cols and e.get("place") != orig_row.get("place"):
-                    kwargs["place"] = str(e["place"])
-                if "description" in visible_cols and e.get("description") != orig_row.get("description"):
-                    kwargs["description"] = str(e["description"])
+                for field in ["category", "place", "description"]:
+                    if field in visible_cols and str(e.get(field, "")) != str(orig_row.get(field, "")):
+                        kwargs[field] = str(e[field])
                 if kwargs:
                     db.update_transaction(row_id, **kwargs)
                     saved += 1
@@ -168,7 +220,6 @@ elif page == "거래내역":
             else:
                 st.info("변경된 내용이 없습니다.")
 
-        # 선택한 행 삭제
         if btn2.button("🗑️ 선택한 행 삭제"):
             selected_ids = edited[edited["선택"] == True]["id"].tolist()
             if not selected_ids:
@@ -179,14 +230,56 @@ elif page == "거래내역":
                 st.rerun()
 
 # ─────────────────────────────────────────────
-# 차트
+# 차트 (고도화)
 # ─────────────────────────────────────────────
 elif page == "차트":
-    st.title("📊 차트")
+    st.title("📊 재무 분석 대시보드")
 
+    today = date.today()
+
+    # ── 최근 N개월 데이터 수집 ──────────────────
+    def collect_monthly(n=6):
+        records = []
+        for m in range(n - 1, -1, -1):
+            tm = today.month - m
+            ty = today.year
+            while tm <= 0:
+                tm += 12
+                ty -= 1
+            rows = db.get_transactions(year=ty, month=tm)
+            income  = sum(r["amount"] for r in rows if r["amount"] > 0)
+            expense = sum(r["amount"] for r in rows if r["amount"] < 0)
+            records.append({
+                "month": f"{ty}-{tm:02d}",
+                "수입": income,
+                "지출": abs(expense),
+                "순수익": income + expense,
+                "저축률": round((income + expense) / income * 100, 1) if income > 0 else 0,
+            })
+        return pd.DataFrame(records).set_index("month")
+
+    monthly_df = collect_monthly(6)
+
+    # ── 1행: 핵심 지표 ─────────────────────────
+    st.subheader("📈 최근 6개월 추이")
+    tab1, tab2, tab3 = st.tabs(["수입 / 지출", "순수익", "저축률 (%)"])
+    with tab1:
+        st.line_chart(monthly_df[["수입", "지출"]])
+    with tab2:
+        st.bar_chart(monthly_df[["순수익"]])
+    with tab3:
+        st.line_chart(monthly_df[["저축률"]])
+        st.caption("저축률 = (수입 - 지출) / 수입 × 100")
+
+    st.divider()
+
+    # ── 2행: 이번달 카테고리 분석 ─────────────
     year, month = _year_month_selector("chart")
+    rows = _get_rows(year, month)
+    period_label = (f"{year}년 {month}월" if year and month
+                    else f"{year}년" if year else "전체 기간")
 
-    rows = db.get_transactions(year=year, month=month)
+    st.subheader(f"🗂️ {period_label} 카테고리별 지출")
     if not rows:
         st.info("데이터가 없습니다.")
     else:
@@ -194,66 +287,130 @@ elif page == "차트":
         expenses = df[df["amount"] < 0].copy()
         expenses["amount_abs"] = expenses["amount"].abs()
 
-        st.subheader("카테고리별 지출")
-        cat_summary = expenses.groupby("category")["amount_abs"].sum().reset_index()
-        st.bar_chart(cat_summary.set_index("category"))
+        if expenses.empty:
+            st.info("지출 내역이 없습니다.")
+        else:
+            cat_df = expenses.groupby("category")["amount_abs"].sum().reset_index()
+            cat_df = cat_df.sort_values("amount_abs", ascending=False)
+            cat_df.columns = ["카테고리", "금액"]
 
-        st.subheader("카테고리별 비율")
-        st.write(cat_summary)
+            c1, c2 = st.columns([3, 2])
+            with c1:
+                st.bar_chart(cat_df.set_index("카테고리"))
+            with c2:
+                total_exp = cat_df["금액"].sum()
+                cat_df["비율"] = (cat_df["금액"] / total_exp * 100).round(1).astype(str) + "%"
+                cat_df["금액"] = cat_df["금액"].apply(lambda x: f"{x:,.0f}원")
+                st.dataframe(cat_df, use_container_width=True, hide_index=True)
 
-    today = date.today()
-    st.subheader("월별 지출 비교 (최근 6개월)")
-    monthly = []
-    for m in range(5, -1, -1):
-        target_month = today.month - m
-        target_year = today.year
-        while target_month <= 0:
-            target_month += 12
-            target_year -= 1
-        r = db.get_transactions(year=target_year, month=target_month)
-        exp = sum(row["amount"] for row in r if row["amount"] < 0)
-        monthly.append({"month": f"{target_year}-{target_month:02d}", "지출": abs(exp)})
-    if monthly:
-        st.bar_chart(pd.DataFrame(monthly).set_index("month"))
+    st.divider()
+
+    # ── 3행: 전월 대비 카테고리 변화 ───────────
+    if month and year:
+        st.subheader("🔄 전월 대비 카테고리 변화")
+        prev_m = month - 1 if month > 1 else 12
+        prev_y = year if month > 1 else year - 1
+        prev_rows = db.get_transactions(year=prev_y, month=prev_m)
+
+        def cat_expense(r_list):
+            d = {}
+            for r in r_list:
+                if r["amount"] < 0:
+                    d[r["category"]] = d.get(r["category"], 0) + abs(r["amount"])
+            return d
+
+        curr_cat = cat_expense(rows)
+        prev_cat = cat_expense(prev_rows)
+        all_cats = sorted(set(curr_cat) | set(prev_cat))
+
+        if all_cats:
+            compare_df = pd.DataFrame({
+                "카테고리": all_cats,
+                f"{prev_y}-{prev_m:02d}": [prev_cat.get(c, 0) for c in all_cats],
+                f"{year}-{month:02d}": [curr_cat.get(c, 0) for c in all_cats],
+            }).set_index("카테고리")
+            st.bar_chart(compare_df)
+
+    st.divider()
+
+    # ── 4행: 일별 지출 패턴 ────────────────────
+    st.subheader("📅 일별 지출 패턴")
+    if rows:
+        df_day = pd.DataFrame(rows)
+        df_day = df_day[df_day["amount"] < 0].copy()
+        if not df_day.empty:
+            df_day["date"] = pd.to_datetime(df_day["date"])
+            daily = df_day.groupby("date")["amount"].sum().abs().reset_index()
+            daily.columns = ["날짜", "지출"]
+            st.area_chart(daily.set_index("날짜"))
+        else:
+            st.info("지출 데이터가 없습니다.")
+
+    st.divider()
+
+    # ── 5행: TOP 지출 항목 ─────────────────────
+    st.subheader("💸 TOP 10 지출 항목")
+    if rows:
+        df_top = pd.DataFrame(rows)
+        df_top = df_top[df_top["amount"] < 0].copy()
+        if not df_top.empty:
+            df_top["amount_abs"] = df_top["amount"].abs()
+            df_top = df_top.nlargest(10, "amount_abs")[
+                ["date", "place", "description", "amount_abs", "category"]
+            ].copy()
+            df_top.columns = ["날짜", "사용 장소", "메모", "금액", "카테고리"]
+            df_top["금액"] = df_top["금액"].apply(lambda x: f"{x:,.0f}원")
+            st.dataframe(df_top, use_container_width=True, hide_index=True)
 
 # ─────────────────────────────────────────────
 # 설정
 # ─────────────────────────────────────────────
 elif page == "설정":
-    st.title("⚙️ 설정")
-
-    setting_sub = st.radio(
-        "기능 선택",
-        ["카테고리 규칙", "CSV 업로드", "수동 입력"],
-        horizontal=True,
-        key="setting_sub",
-    )
-    st.divider()
+    setting_sub = st.session_state.settings_sub
 
     # ── 카테고리 규칙 ──────────────────────────
     if setting_sub == "카테고리 규칙":
-        st.subheader("카테고리 규칙")
+        st.title("📝 카테고리 규칙")
         try:
             rules = load_rules()
-            st.json(rules)
+            rule_list = rules.get("rules", [])
+            default_cat = rules.get("default_category", "미분류")
+
+            rows_data = []
+            for i, rule in enumerate(rule_list, 1):
+                rows_data.append({
+                    "번호": i,
+                    "카테고리": rule.get("category", ""),
+                    "포함 키워드": ", ".join(rule.get("match", [])),
+                })
+            if rows_data:
+                st.dataframe(
+                    pd.DataFrame(rows_data),
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "번호": st.column_config.NumberColumn(width="small"),
+                        "카테고리": st.column_config.TextColumn(width="medium"),
+                        "포함 키워드": st.column_config.TextColumn(width="large"),
+                    },
+                )
+            st.info(f"매칭 없을 때 기본 카테고리: **{default_cat}**")
         except FileNotFoundError:
             st.warning("config/categories.yaml 파일이 없습니다.")
         st.caption("규칙을 수정하려면 `config/categories.yaml` 파일을 직접 편집하세요.")
 
     # ── CSV 업로드 ─────────────────────────────
     elif setting_sub == "CSV 업로드":
-        st.subheader("CSV 업로드")
+        st.title("📤 CSV 업로드")
         uploaded = st.file_uploader("거래내역 CSV 파일", type=["csv"])
         if uploaded:
             df = pd.read_csv(io.BytesIO(uploaded.read()))
 
-            # 첫 번째 열이 비어있는 첫 행에서 멈추기
             first_col = df.columns[0]
             empty_mask = df[first_col].isna() | (df[first_col].astype(str).str.strip() == "")
             if empty_mask.any():
                 df = df.iloc[:empty_mask.idxmax()]
 
-            # 전체 데이터 미리보기 (스크롤 가능)
             st.info(f"총 {len(df)}개 행 감지됨.")
             st.dataframe(df, height=400, use_container_width=True)
 
@@ -308,13 +465,13 @@ elif page == "설정":
 
     # ── 수동 입력 ──────────────────────────────
     elif setting_sub == "수동 입력":
-        st.subheader("수동 입력")
+        st.title("✏️ 수동 입력")
         with st.form("manual_entry"):
-            entry_date = st.date_input("날짜", value=date.today())
+            entry_date   = st.date_input("날짜", value=date.today())
             entry_amount = st.number_input("금액 (지출은 음수)", step=100)
-            entry_place = st.text_input("사용 장소")
-            entry_desc = st.text_input("메모")
-            entry_cat = st.text_input("카테고리", value="미분류")
+            entry_place  = st.text_input("사용 장소")
+            entry_desc   = st.text_input("메모")
+            entry_cat    = st.text_input("카테고리", value="미분류")
             entry_source = st.text_input("출처", value="manual")
             if st.form_submit_button("추가"):
                 if entry_amount == 0:
