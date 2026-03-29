@@ -232,7 +232,7 @@ elif page == "설정":
                     raw_amount = str(row[amount_col]).replace(",", "").strip()
                     txs.append(Transaction(
                         date=date.fromisoformat(str(row[date_col])[:10]),
-                        amount=int(raw_amount),
+                        amount=int(float(raw_amount)),
                         description=parse_value(row[desc_col], desc_dtype) if desc_col != "(없음)" else "",
                         place=parse_value(row[place_col], place_dtype) if place_col != "(없음)" else "",
                         source=parse_value(row[source_col], source_dtype) if source_col != "(없음)" else "csv",
