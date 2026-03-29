@@ -413,9 +413,96 @@ elif page == "차트":
 elif page == "설정":
     setting_sub = st.session_state.settings_sub
 
+    # ── 미분류 일괄 재분류 ─────────────────────
+    def _ai_recategorize_unclassified():
+        """DB의 미분류 항목을 AI로 일괄 재분류 후 DB 업데이트 + 규칙 저장."""
+        import os, json
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            st.error("ANTHROPIC_API_KEY가 .env에 없습니다.")
+            return
+
+        all_rows = db.get_transactions()
+        uncat = [r for r in all_rows if r["category"] == "미분류"]
+        if not uncat:
+            st.info("미분류 항목이 없습니다.")
+            return
+
+        # place 또는 description 기준으로 unique 목록
+        unique_places = sorted(set(
+            (r["place"] or r["description"]).strip()
+            for r in uncat
+            if (r["place"] or r["description"]).strip()
+        ))
+
+        if not unique_places:
+            st.info("분류 기준이 될 장소/메모가 없습니다.")
+            return
+
+        existing_cats = sorted(set(
+            rule["category"] for rule in load_rules().get("rules", [])
+        ))
+        cats_str = ", ".join(existing_cats)
+
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            places_str = "\n".join(f"- {p}" for p in unique_places)
+            msg = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1024,
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"한국 가계부 앱입니다. 아래 장소/가맹점명을 보고 카테고리를 유추해주세요.\n"
+                        f"기존 카테고리: {cats_str}\n"
+                        f"기존 카테고리에 없으면 새 카테고리를 만들어도 됩니다.\n"
+                        f"확실하지 않으면 \"미분류\"로 설정하세요.\n\n"
+                        f"장소 목록:\n{places_str}\n\n"
+                        f"JSON만 응답 (다른 텍스트 없이): {{\"장소명\": \"카테고리\", ...}}"
+                    ),
+                }],
+            )
+            text = msg.content[0].text.strip()
+            start, end = text.find("{"), text.rfind("}") + 1
+            if start < 0 or end <= start:
+                st.error("AI 응답 파싱 실패")
+                return
+            place_to_cat: dict[str, str] = json.loads(text[start:end])
+        except Exception as e:
+            st.error(f"AI 호출 실패: {e}")
+            return
+
+        # DB 업데이트 + 규칙 저장
+        updated = 0
+        new_rules: dict[str, str] = {}
+        for r in uncat:
+            key = (r["place"] or r["description"]).strip()
+            cat = place_to_cat.get(key, "")
+            if cat and cat != "미분류":
+                db.update_transaction(r["id"], category=cat)
+                updated += 1
+                if r["place"]:
+                    new_rules[r["place"]] = cat
+
+        if new_rules:
+            _update_category_rules(new_rules)
+
+        st.success(f"{updated}개 항목 재분류 완료, {len(new_rules)}개 규칙 추가됨.")
+        st.rerun()
+
     # ── 카테고리 규칙 ──────────────────────────
     if setting_sub == "카테고리 규칙":
         st.title("📝 카테고리 규칙")
+
+        # 미분류 일괄 재분류 버튼
+        uncat_count = sum(1 for r in db.get_transactions() if r["category"] == "미분류")
+        if uncat_count > 0:
+            st.warning(f"현재 미분류 항목: **{uncat_count}개**")
+            if st.button("🤖 AI로 미분류 일괄 재분류"):
+                with st.spinner("AI가 분류 중..."):
+                    _ai_recategorize_unclassified()
+        st.divider()
         try:
             rules = load_rules()
             rule_list = rules.get("rules", [])
