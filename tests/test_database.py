@@ -100,3 +100,42 @@ def test_update_category_raises_if_not_found(db):
             date=date(2026, 1, 1), amount=-999,
             description="없는가게", source="kb_card", category="식비"
         )
+
+
+def test_delete_transactions(db):
+    tx1 = make_tx(description="스타벅스")
+    tx2 = make_tx(description="맥도날드", amount=-8000)
+    db.insert_transactions([tx1, tx2])
+    rows = db.get_transactions()
+    assert len(rows) == 2
+    target_id = rows[0]["id"]
+    deleted = db.delete_transactions([target_id])
+    assert deleted == 1
+    remaining = db.get_transactions()
+    assert len(remaining) == 1
+    assert remaining[0]["id"] != target_id
+
+
+def test_update_transaction_category_sets_is_edited(db):
+    db.insert_transactions([make_tx(category="식비")])
+    row_id = db.get_transactions()[0]["id"]
+    db.update_transaction(row_id, category="쇼핑")
+    updated = db.get_transactions()[0]
+    assert updated["category"] == "쇼핑"
+    assert updated["is_edited"] == 1
+
+
+def test_update_transaction_place_does_not_set_is_edited(db):
+    db.insert_transactions([make_tx()])
+    row_id = db.get_transactions()[0]["id"]
+    db.update_transaction(row_id, place="새장소")
+    updated = db.get_transactions()[0]
+    assert updated["place"] == "새장소"
+    assert updated["is_edited"] == 0
+
+
+def test_get_available_years(db):
+    db.insert_transactions([make_tx(date=date(2025, 6, 1), description="편의점", amount=-1000)])
+    db.insert_transactions([make_tx(date=date(2026, 3, 1))])
+    years = db.get_available_years()
+    assert years == [2026, 2025]

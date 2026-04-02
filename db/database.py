@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -15,7 +17,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     raw_source  TEXT NOT NULL,
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
     is_edited   BOOLEAN DEFAULT 0,
-    UNIQUE(date, amount, description, source)
+    UNIQUE(date, amount, description, place, source)
 );
 
 CREATE TABLE IF NOT EXISTS crawl_log (
@@ -39,19 +41,58 @@ class Database:
         self._migrate()
 
     def _migrate(self) -> None:
+        # Migration 1: add place column if missing
         try:
             self._conn.execute("ALTER TABLE transactions ADD COLUMN place TEXT NOT NULL DEFAULT ''")
             self._conn.commit()
         except sqlite3.OperationalError:
             pass  # column already exists
 
+        # Migration 2: expand UNIQUE constraint to include place
+        # Detect by inspecting the existing unique index columns
+        indexes = self._conn.execute("PRAGMA index_list(transactions)").fetchall()
+        needs_migration = False
+        for idx in indexes:
+            if idx["unique"]:
+                cols = [
+                    r["name"]
+                    for r in self._conn.execute(f"PRAGMA index_info({idx['name']})").fetchall()
+                ]
+                if "place" not in cols:
+                    needs_migration = True
+                    break
+        if needs_migration:
+            self._conn.executescript("""
+                BEGIN;
+                CREATE TABLE transactions_new (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date        DATE NOT NULL,
+                    amount      INTEGER NOT NULL,
+                    description TEXT NOT NULL,
+                    place       TEXT NOT NULL DEFAULT '',
+                    category    TEXT NOT NULL DEFAULT '미분류',
+                    source      TEXT NOT NULL,
+                    raw_source  TEXT NOT NULL,
+                    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    is_edited   BOOLEAN DEFAULT 0,
+                    UNIQUE(date, amount, description, place, source)
+                );
+                INSERT INTO transactions_new
+                    SELECT id, date, amount, description, place, category,
+                           source, raw_source, created_at, is_edited
+                    FROM transactions;
+                DROP TABLE transactions;
+                ALTER TABLE transactions_new RENAME TO transactions;
+                COMMIT;
+            """)
+
     def insert_transactions(self, transactions: list[CategorizedTransaction]) -> int:
         inserted = 0
         try:
             for tx in transactions:
                 existing = self._conn.execute(
-                    "SELECT is_edited FROM transactions WHERE date=? AND amount=? AND description=? AND source=?",
-                    (tx.date.isoformat(), tx.amount, tx.description, tx.source),
+                    "SELECT is_edited FROM transactions WHERE date=? AND amount=? AND description=? AND place=? AND source=?",
+                    (tx.date.isoformat(), tx.amount, tx.description, tx.place, tx.source),
                 ).fetchone()
                 if existing:
                     if existing["is_edited"]:

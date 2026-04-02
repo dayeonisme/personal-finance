@@ -1,4 +1,5 @@
 import io
+import os
 import urllib.request
 from datetime import date
 from pathlib import Path
@@ -10,6 +11,8 @@ import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_AI_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5")
 
 from db.database import Database
 from models import CategorizedTransaction, Transaction
@@ -116,7 +119,7 @@ def _infer_col_idx(cols: list[str], hints: set[str], with_none: bool = False) ->
     return 0
 
 
-_RULES_PATH = Path("config/categories.yaml")
+_RULES_PATH = Path(__file__).parent.parent / "config" / "categories.yaml"
 
 
 def _update_category_rules(place_to_cat: dict[str, str]) -> None:
@@ -511,7 +514,7 @@ elif page == "설정":
             client = anthropic.Anthropic(api_key=api_key)
             places_str = "\n".join(f"- {p}" for p in unique_places)
             msg = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=_AI_MODEL,
                 max_tokens=1024,
                 messages=[{
                     "role": "user",
@@ -707,7 +710,7 @@ elif page == "설정":
                             places_str = "\n".join(f"- {p}" for p in uncat_places)
                             cats_str = ", ".join(existing_cats)
                             msg = client.messages.create(
-                                model="claude-haiku-4-5-20251001",
+                                model=_AI_MODEL,
                                 max_tokens=512,
                                 messages=[{
                                     "role": "user",
