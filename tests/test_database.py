@@ -49,8 +49,8 @@ def test_deduplication(db):
 def test_is_edited_preserves_category(db):
     tx = make_tx(category="식비")
     db.insert_transactions([tx])
-    db.update_category(date=tx.date, amount=tx.amount, description=tx.description,
-                       source=tx.source, category="쇼핑")
+    row_id = db.get_transactions()[0]["id"]
+    db.update_transaction(row_id, category="쇼핑")
     rows = db.get_transactions()
     assert rows[0]["category"] == "쇼핑"
     assert rows[0]["is_edited"] == 1
@@ -94,12 +94,10 @@ def test_get_transactions_month_without_year_raises(db):
         db.get_transactions(month=3)
 
 
-def test_update_category_raises_if_not_found(db):
-    with pytest.raises(LookupError):
-        db.update_category(
-            date=date(2026, 1, 1), amount=-999,
-            description="없는가게", source="kb_card", category="식비"
-        )
+def test_update_transaction_nonexistent_id_is_noop(db):
+    # update_transaction on a non-existent id should silently do nothing
+    db.update_transaction(99999, category="식비")
+    assert db.get_transactions() == []
 
 
 def test_delete_transactions(db):

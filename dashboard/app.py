@@ -1,8 +1,12 @@
 import io
 import os
+import sys
 import urllib.request
 from datetime import date
 from pathlib import Path
+
+# Ensure project root is on sys.path when run via `streamlit run dashboard/app.py`
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import altair as alt
 import pandas as pd
@@ -12,7 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-_AI_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5")
+_AI_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 
 from db.database import Database
 from models import CategorizedTransaction, Transaction
@@ -505,7 +509,7 @@ elif page == "설정":
             return
 
         existing_cats = sorted(set(
-            rule["category"] for rule in load_rules().get("rules", [])
+            rule["category"] for rule in load_rules(_RULES_PATH).get("rules", [])
         ))
         cats_str = ", ".join(existing_cats)
 
@@ -569,7 +573,7 @@ elif page == "설정":
                     _ai_recategorize_unclassified()
         st.divider()
         try:
-            rules = load_rules()
+            rules = load_rules(_RULES_PATH)
             rule_list = rules.get("rules", [])
             default_cat = rules.get("default_category", "미분류")
 
@@ -695,7 +699,7 @@ elif page == "설정":
                 place_to_cat: dict[str, str] = {}
                 if uncat_places:
                     existing_cats = sorted(set(
-                        r["category"] for r in load_rules().get("rules", [])
+                        r["category"] for r in load_rules(_RULES_PATH).get("rules", [])
                     ))
                     cat_choices = existing_cats + ["미분류"]
 

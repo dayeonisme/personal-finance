@@ -115,19 +115,6 @@ class Database:
             raise
         return inserted
 
-    def update_category(self, *, date: date, amount: int, description: str,
-                        source: str, category: str) -> None:
-        cur = self._conn.execute(
-            """UPDATE transactions SET category=?, is_edited=1
-               WHERE date=? AND amount=? AND description=? AND source=?""",
-            (category, date.isoformat(), amount, description, source),
-        )
-        self._conn.commit()
-        if cur.rowcount == 0:
-            raise LookupError(
-                f"No transaction found for ({date}, {amount}, {description!r}, {source!r})"
-            )
-
     def get_transactions(self, year: int = None, month: int = None) -> list[dict]:
         if month is not None and year is None:
             raise ValueError("year is required when month is specified")
