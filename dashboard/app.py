@@ -324,19 +324,27 @@ def _update_category_rules(place_to_cat: dict[str, str]) -> None:
 
 
 def _section_header(title: str, subtitle: str = "") -> None:
+    sub_html = (f'<span style="font-size:12px;color:{_SUB};margin-left:8px;'
+                f'font-weight:500;text-transform:none;letter-spacing:normal">{subtitle}</span>'
+                if subtitle else "")
     st.markdown(
-        f'<div style="margin:18px 0 10px">'
-        f'<span style="font-size:17px;font-weight:700;color:#191F28">{title}</span>'
-        + (f'<span style="font-size:14px;color:#8B95A1;margin-left:8px">{subtitle}</span>' if subtitle else "")
-        + '</div>',
+        f'<div style="margin:22px 0 8px;padding-bottom:6px;'
+        f'border-bottom:2px solid {_TEXT}">'
+        f'<span style="font-size:10px;font-weight:700;color:{_SUB};'
+        f'text-transform:uppercase;letter-spacing:0.8px">{title}</span>'
+        f'{sub_html}'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
 
 def _status_bar(text: str, color: str = "#0064FF", bg: str = "#EBF2FF") -> None:
     st.markdown(
-        f'<div style="background:{bg};border-radius:8px;padding:10px 14px;margin:10px 0;'
-        f'font-size:14px;color:{color};font-weight:500">{text}</div>',
+        f'<div style="padding:8px 0;margin:6px 0;font-size:13px;'
+        f'color:{color};font-weight:600;display:flex;align-items:center;gap:6px">'
+        f'<span style="width:6px;height:6px;border-radius:50%;background:{color};'
+        f'display:inline-block;flex-shrink:0"></span>{text}'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
