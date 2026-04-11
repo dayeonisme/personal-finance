@@ -420,16 +420,24 @@ page = st.session_state.page
 # ─────────────────────────────────────────────────────────
 if page == "홈":
     today = date.today()
-    c_title, c_sync = st.columns([4, 1])
+    c_title, c_toggle, c_sync = st.columns([4, 1, 1])
     with c_title:
         st.markdown(f"<h1>이번달 요약</h1>", unsafe_allow_html=True)
         st.markdown(
-            f'<p style="color:#8B95A1;font-size:15px;margin-top:0">{today.year}년 {today.month}월</p>',
+            f'<p style="color:{_SUB};font-size:14px;margin-top:2px;font-weight:500">'
+            f'{today.year}년 {today.month}월</p>',
             unsafe_allow_html=True,
         )
+    with c_toggle:
+        st.markdown('<div style="padding-top:16px">', unsafe_allow_html=True)
+        _toggle_label = "🌙 다크" if not dark else "☀ 라이트"
+        if st.button(_toggle_label, use_container_width=True):
+            st.session_state.dark_mode = not dark
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
     with c_sync:
-        st.markdown('<div style="padding-top:14px">', unsafe_allow_html=True)
-        if st.button("🔄 지금 동기화", use_container_width=True, type="primary"):
+        st.markdown('<div style="padding-top:16px">', unsafe_allow_html=True)
+        if st.button("🔄 동기화", use_container_width=True, type="primary"):
             try:
                 urllib.request.urlopen(
                     urllib.request.Request("http://127.0.0.1:9000/run", method="POST"), timeout=5
