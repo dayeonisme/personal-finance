@@ -101,8 +101,8 @@ _toggle_icon_url = _svg_b64(
 # ─────────────────────────────────────────────────────────
 st.markdown(f"""
 <style>
-/* ── 전역 ── */
-.stApp {{ background: #F2F4F7 !important; }}
+/* ── 전역 배경 ── */
+.stApp {{ background: {_BG} !important; }}
 .main .block-container {{
     padding: 2rem 2.2rem 2rem !important;
     max-width: 100% !important;
@@ -112,14 +112,13 @@ header[data-testid="stHeader"] {{
     box-shadow: none !important;
 }}
 
-/* ── 사이드바 컨테이너 ── */
+/* ── 사이드바 ── */
 section[data-testid="stSidebar"] {{
     min-width: {_sw} !important;
     max-width: {_sw} !important;
     background: #0064FF !important;
     transition: min-width .2s ease, max-width .2s ease;
 }}
-/* 사이드바 flex 레이아웃 → 설정 버튼 하단 고정 */
 section[data-testid="stSidebar"] > div:first-child {{
     background: #0064FF !important;
     padding: 0 !important;
@@ -128,14 +127,12 @@ section[data-testid="stSidebar"] > div:first-child {{
     height: 100vh !important;
 }}
 [data-testid="collapsedControl"] {{ display: none !important; }}
-
-/* ── 사이드바 텍스트 ── */
 section[data-testid="stSidebar"] p,
 section[data-testid="stSidebar"] small {{
     color: rgba(255,255,255,0.85) !important;
 }}
 
-/* ── 사이드바 nav 버튼 (기본 = 비활성) ── */
+/* ── 사이드바 nav 버튼 ── */
 section[data-testid="stSidebar"] .stButton > button {{
     background: rgba(255,255,255,0.08) !important;
     border: none !important;
@@ -156,20 +153,18 @@ section[data-testid="stSidebar"] .stButton > button:hover {{
     color: white !important;
     border: none !important;
 }}
-/* 활성 항목: 굵은 텍스트 → 흰 배경 + 파란 텍스트 */
 section[data-testid="stSidebar"] .stButton > button strong,
 section[data-testid="stSidebar"] .stButton > button b {{
     color: #0064FF !important;
     font-weight: 700 !important;
 }}
-/* 활성 버튼 자체는 흰 배경 */
 section[data-testid="stSidebar"] .stButton > button:has(strong),
 section[data-testid="stSidebar"] .stButton > button:has(b) {{
     background: white !important;
     color: #0064FF !important;
 }}
 
-/* ── 토글 버튼 (패널 아이콘) ── */
+/* ── 사이드바 토글 버튼 ── */
 section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] .stButton > button {{
     background: rgba(255,255,255,0.18) !important;
     color: white !important;
@@ -192,16 +187,16 @@ section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] .stButton > b
     border: none !important;
 }}
 
-/* ── flex 성장 영역 (설정 버튼 밀기용) ── */
+/* ── flex 성장 (설정 버튼 하단 고정) ── */
 .sb-spacer {{ flex: 1 !important; min-height: 0 !important; }}
 
 /* ── 탭 ── */
 .stTabs [data-baseweb="tab-list"] {{
-    background: white !important;
+    background: {"#1a1a22" if dark else "white"} !important;
     border-radius: 10px !important;
     padding: 4px !important;
     gap: 2px !important;
-    box-shadow: 0 1px 4px rgba(0,0,0,.06) !important;
+    box-shadow: {"none" if dark else "0 1px 4px rgba(0,0,0,.06)"} !important;
     border-bottom: none !important;
     margin-bottom: 14px !important;
 }}
@@ -209,7 +204,7 @@ section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] .stButton > b
     border-radius: 8px !important;
     font-weight: 600 !important;
     font-size: 15px !important;
-    color: #8B95A1 !important;
+    color: {_SUB} !important;
     padding: 7px 18px !important;
     border-bottom: none !important;
 }}
@@ -236,17 +231,18 @@ button[kind="primary"],
 
 /* ── 헤딩 ── */
 h1 {{
-    color: #191F28 !important;
-    font-weight: 800 !important;
-    letter-spacing: -0.5px !important;
-    font-size: 1.65rem !important;
+    color: {_TEXT} !important;
+    font-weight: 900 !important;
+    letter-spacing: -0.6px !important;
+    font-size: 1.5rem !important;
     margin-bottom: 0 !important;
 }}
-h2 {{ color: #191F28 !important; font-weight: 700 !important; }}
-h3 {{ color: #191F28 !important; font-weight: 700 !important; font-size: 1.05rem !important; }}
+h2 {{ color: {_TEXT} !important; font-weight: 700 !important; }}
+h3 {{ color: {_TEXT} !important; font-weight: 700 !important; font-size: 1.05rem !important; }}
+p {{ color: {_TEXT} !important; }}
 
 /* ── 구분선 ── */
-hr {{ border-color: #E8ECF0 !important; margin: 1.2rem 0 !important; }}
+hr {{ border-color: {_LINE} !important; margin: 1.2rem 0 !important; }}
 
 /* ── 알림 ── */
 .stAlert {{ border-radius: 10px !important; font-size: 14px !important; }}
@@ -254,8 +250,10 @@ hr {{ border-color: #E8ECF0 !important; margin: 1.2rem 0 !important; }}
 /* ── Selectbox ── */
 [data-baseweb="select"] > div:first-child {{
     border-radius: 8px !important;
-    border-color: #E0E6EF !important;
+    border-color: {_LINE} !important;
     font-size: 15px !important;
+    background: {"#1a1a22" if dark else "white"} !important;
+    color: {_TEXT} !important;
 }}
 
 /* ── DataFrame ── */
@@ -263,6 +261,9 @@ hr {{ border-color: #E8ECF0 !important; margin: 1.2rem 0 !important; }}
     border-radius: 12px !important;
     overflow: hidden !important;
 }}
+
+/* ── Multiselect ── */
+[data-baseweb="tag"] {{ background: #0064FF !important; }}
 </style>
 """, unsafe_allow_html=True)
 
