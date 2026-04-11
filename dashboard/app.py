@@ -192,7 +192,7 @@ section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] .stButton > b
 
 /* ── 탭 ── */
 .stTabs [data-baseweb="tab-list"] {{
-    background: {"#1a1a22" if dark else "white"} !important;
+    background: {_CARD} !important;
     border-radius: 10px !important;
     padding: 4px !important;
     gap: 2px !important;
@@ -252,7 +252,7 @@ hr {{ border-color: {_LINE} !important; margin: 1.2rem 0 !important; }}
     border-radius: 8px !important;
     border-color: {_LINE} !important;
     font-size: 15px !important;
-    background: {"#1a1a22" if dark else "white"} !important;
+    background: {_CARD} !important;
     color: {_TEXT} !important;
 }}
 
