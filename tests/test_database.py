@@ -137,3 +137,31 @@ def test_get_available_years(db):
     db.insert_transactions([make_tx(date=date(2026, 3, 1))])
     years = db.get_available_years()
     assert years == [2026, 2025]
+
+
+def test_budget_set_and_get(tmp_path):
+    db = Database(str(tmp_path / "test.db"))
+    db.set_budget("식비", 300_000)
+    db.set_budget("카페", 50_000)
+    budgets = db.get_budgets()
+    assert budgets["식비"] == 300_000
+    assert budgets["카페"] == 50_000
+
+
+def test_budget_upsert(tmp_path):
+    db = Database(str(tmp_path / "test.db"))
+    db.set_budget("식비", 300_000)
+    db.set_budget("식비", 400_000)
+    assert db.get_budgets()["식비"] == 400_000
+
+
+def test_budget_delete(tmp_path):
+    db = Database(str(tmp_path / "test.db"))
+    db.set_budget("식비", 300_000)
+    db.delete_budget("식비")
+    assert "식비" not in db.get_budgets()
+
+
+def test_budget_empty(tmp_path):
+    db = Database(str(tmp_path / "test.db"))
+    assert db.get_budgets() == {}

@@ -14,9 +14,9 @@ Toss (Playwright) → 분류(YAML 규칙) → SQLite → Streamlit 대시보드
 
 | 항목 | 버전 | 비고 |
 |------|------|------|
-| Python | 3.12+ | [python.org](https://python.org) |
+| Python | 3.9+ | [python.org](https://python.org) |
 | Docker Desktop | 최신 | n8n 자동화용 |
-| Windows | 10/11 | 다른 OS 미테스트 |
+| OS | macOS / Windows 10·11 / Linux | |
 
 ## 빠른 시작
 
@@ -42,8 +42,12 @@ N8N_BASIC_AUTH_USER=admin
 N8N_BASIC_AUTH_PASSWORD=strong_password_here
 ```
 
-파일 권한 제한 (Windows):
+파일 권한 제한:
 ```bash
+# macOS / Linux
+chmod 600 .env
+
+# Windows
 icacls .env /inheritance:r /grant:r "%USERNAME%:F"
 ```
 
@@ -71,10 +75,21 @@ python run.py --days 7
 ### 6. 대시보드 실행
 
 ```bash
+# 가상환경 활성화 후 실행
+source .venv/bin/activate
 streamlit run dashboard/app.py --server.address 127.0.0.1 --server.port 8501
 ```
 
 브라우저에서 http://127.0.0.1:8501 접속.
+
+**macOS 빠른 실행:** `start_dashboard.command` 파일을 더블클릭하거나 Dock에 등록하면 클릭 한 번으로 실행됩니다.
+
+```bash
+# 또는 alias 등록 후 터미널에서
+echo 'alias finance="~/dev/personal_finance/start_dashboard.command"' >> ~/.zshrc
+source ~/.zshrc
+finance
+```
 
 ## 자동 동기화 설정 (n8n)
 

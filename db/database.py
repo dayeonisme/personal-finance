@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS crawl_log (
     rows_added  INTEGER DEFAULT 0,
     error_msg   TEXT
 );
+
+CREATE TABLE IF NOT EXISTS budget (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    category  TEXT NOT NULL UNIQUE,
+    monthly   INTEGER NOT NULL CHECK(monthly > 0)
+);
 """
 
 
@@ -174,12 +180,56 @@ class Database:
         )
         self._conn.commit()
 
+    def get_unedited_transactions(self) -> list[dict]:
+        """is_edited=0 인 전체 거래내역 반환 (규칙 기반 재분류용)."""
+        rows = self._conn.execute(
+            "SELECT * FROM transactions WHERE is_edited=0 ORDER BY date DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def bulk_update_categories(self, updates: dict[int, str]) -> int:
+        """id → category 매핑으로 카테고리 일괄 업데이트. is_edited 는 건드리지 않음."""
+        updated = 0
+        try:
+            for row_id, category in updates.items():
+                cur = self._conn.execute(
+                    "UPDATE transactions SET category=? WHERE id=? AND is_edited=0",
+                    (category, row_id),
+                )
+                updated += cur.rowcount
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return updated
+
     def get_available_years(self) -> list[int]:
         rows = self._conn.execute(
             "SELECT DISTINCT CAST(strftime('%Y', date) AS INTEGER) AS yr "
             "FROM transactions ORDER BY yr DESC"
         ).fetchall()
         return [r["yr"] for r in rows]
+
+    def get_budgets(self) -> dict[str, int]:
+        """category → monthly_limit 딕셔너리 반환 (카테고리명 오름차순)."""
+        rows = self._conn.execute(
+            "SELECT category, monthly FROM budget ORDER BY category"
+        ).fetchall()
+        return {r["category"]: r["monthly"] for r in rows}
+
+    def set_budget(self, category: str, monthly: int) -> None:
+        """카테고리 예산 설정 (upsert)."""
+        self._conn.execute(
+            "INSERT INTO budget (category, monthly) VALUES (?, ?)"
+            " ON CONFLICT(category) DO UPDATE SET monthly=excluded.monthly",
+            (category, monthly),
+        )
+        self._conn.commit()
+
+    def delete_budget(self, category: str) -> None:
+        """카테고리 예산 삭제."""
+        self._conn.execute("DELETE FROM budget WHERE category=?", (category,))
+        self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()

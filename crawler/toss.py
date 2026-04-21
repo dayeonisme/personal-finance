@@ -143,7 +143,9 @@ class TossCrawler(BaseCrawler):
     def login(self) -> None:
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(headless=self._headless)
-        if SESSION_PATH.exists():
+
+        session_exists = SESSION_PATH.exists()
+        if session_exists:
             self._context = self._browser.new_context(storage_state=str(SESSION_PATH))
         else:
             self._context = self._browser.new_context()
@@ -151,34 +153,56 @@ class TossCrawler(BaseCrawler):
         self._page = self._context.new_page()
         self._page.goto(f"{TOSS_URL}/my-account")
 
-        # Wait for any SPA redirect to settle, then check if already authenticated
+        # Check if already authenticated
         try:
             self._page.wait_for_url(f"{TOSS_URL}/my-account**", timeout=5_000)
             logger.info("Session valid — skipping login")
             return
         except Exception:
-            pass  # session expired or never logged in — proceed with login flow
+            pass  # session expired or never logged in
 
-        # Perform login
+        # Session expired: discard stale session file and reset context
+        if session_exists:
+            logger.info("Saved session expired — discarding %s and re-authenticating", SESSION_PATH)
+            SESSION_PATH.unlink(missing_ok=True)
+            self._page.close()
+            self._context.close()
+            self._context = self._browser.new_context()
+            self._page = self._context.new_page()
+
+        # headless=True means we're in automated mode — OTP is not possible
+        if self._headless:
+            raise AuthenticationError(
+                "Toss session expired and cannot re-authenticate in headless mode. "
+                "Run: python run.py --login"
+            )
+
+        # Interactive login (headless=False)
         phone = os.environ["TOSS_PHONE"]
         password = os.environ["TOSS_PASSWORD"]
+        self._page.goto(f"{TOSS_URL}/my-account")
         self._page.fill('[placeholder*="전화번호"]', phone)
         self._page.click('button:has-text("다음")')
         self._page.fill('[placeholder*="비밀번호"]', password)
         self._page.click('button:has-text("로그인")')
 
         try:
-            # Wait for OTP completion (manual step when headless=False)
+            # Wait for OTP completion (manual step)
             self._page.wait_for_url(f"{TOSS_URL}/my-account**", timeout=120_000)
         except Exception as e:
             raise AuthenticationError(
-                "Toss login timed out — session may be expired. Run: python run.py --login"
+                "Toss login timed out. Complete OTP within 2 minutes."
             ) from e
 
-        # Save session
+        # Save new session
         SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
         self._context.storage_state(path=str(SESSION_PATH))
-        logger.info("Session saved to %s", SESSION_PATH)
+        logger.info("New session saved to %s", SESSION_PATH)
+
+    # Scroll pagination constants
+    _MAX_SCROLL_ATTEMPTS = 40   # hard cap to prevent infinite loops
+    _SCROLL_PAUSE_MS     = 2_000  # ms to wait after each scroll for API responses
+    _NO_NEW_DATA_LIMIT   = 3    # stop if N consecutive scrolls yield no new transactions
 
     def fetch_transactions(self, start_date: date, end_date: date) -> list[Transaction]:
         if self._page is None:
@@ -203,9 +227,46 @@ class TossCrawler(BaseCrawler):
 
         self._page.on("response", _on_response)
 
-        # Navigate to the transaction list page to trigger the API calls
+        # Navigate to the transaction list page to trigger initial API calls
         self._page.goto(f"{TOSS_URL}/my-account/transaction-list")
         self._page.wait_for_load_state("networkidle")
+
+        # Scroll down repeatedly to trigger lazy-load API calls
+        no_new_count = 0
+        prev_count = 0
+
+        for attempt in range(self._MAX_SCROLL_ATTEMPTS):
+            # Scroll to bottom of page and any tall inner container
+            self._page.evaluate(
+                "() => {"
+                "  window.scrollTo(0, document.body.scrollHeight);"
+                "  const el = document.querySelector('[class*=\"transaction\"], [class*=\"list\"], main');"
+                "  if (el) el.scrollTop = el.scrollHeight;"
+                "}"
+            )
+            self._page.wait_for_timeout(self._SCROLL_PAUSE_MS)
+
+            # Stop if oldest captured transaction is before start_date (checked after scroll)
+            if self._captured:
+                oldest = min(tx.date for tx in self._captured)
+                if oldest < start_date:
+                    logger.info(
+                        "Oldest captured date %s is before start_date %s — stopping scroll",
+                        oldest, start_date,
+                    )
+                    break
+
+            current_count = len(self._captured)
+            if current_count == prev_count:
+                no_new_count += 1
+                logger.debug("Scroll %d: no new transactions (%d/%d)",
+                             attempt + 1, no_new_count, self._NO_NEW_DATA_LIMIT)
+                if no_new_count >= self._NO_NEW_DATA_LIMIT:
+                    logger.info("No new data after %d scrolls — stopping", no_new_count)
+                    break
+            else:
+                no_new_count = 0
+            prev_count = current_count
 
         self._page.remove_listener("response", _on_response)
 
