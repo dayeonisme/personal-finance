@@ -19,3 +19,4 @@ playwright-report/
 test-results/
 .pytest_cache/
 .worktrees/
+debug_toss.py
