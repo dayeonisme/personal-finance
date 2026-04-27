@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import date
 from pathlib import Path
+from typing import Optional
 
 from playwright.sync_api import sync_playwright, Page, Response
 from dotenv import load_dotenv
@@ -61,7 +62,7 @@ def _parse_api_response(body: dict) -> list[Transaction]:
     return transactions
 
 
-def _item_to_transaction(item: dict) -> Transaction | None:
+def _item_to_transaction(item: dict) -> Optional[Transaction]:
     """Convert a single API item dict to a Transaction, or return None."""
     # ── date ──────────────────────────────────────────────────────────────
     raw_date = (
@@ -137,7 +138,7 @@ class TossCrawler(BaseCrawler):
         self._playwright = None
         self._browser = None
         self._context = None
-        self._page: Page | None = None
+        self._page: Optional[Page] = None
         self._captured: list[Transaction] = []
 
     def login(self) -> None:

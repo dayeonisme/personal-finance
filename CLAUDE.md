@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+Always use `python3` and `pip3` (not `python` / `pip`).
+
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 playwright install chromium
 
 # Run all tests
@@ -16,13 +18,13 @@ pytest -v
 pytest tests/test_database.py -v
 
 # First-time Toss login (opens browser, saves session to data/toss_session.json)
-python run.py --login
+python3 run.py --login
 
 # Daily sync (automated via n8n, or run manually)
-python run.py --days 7
+python3 run.py --days 7
 
 # Dry run (fetch and categorize without writing to DB)
-python run.py --dry-run
+python3 run.py --dry-run
 
 # Start dashboard
 streamlit run dashboard/app.py --server.address 127.0.0.1 --server.port 8501
